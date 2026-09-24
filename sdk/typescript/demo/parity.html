@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vons ONNX Runtime Web parity matrix</title>
+  </head>
+  <body>
+    <main>
+      <h1>Vons ONNX Runtime Web parity matrix</h1>
+      <p>This local harness runs the frozen 23-fixture contract matrix. It is not a quality benchmark.</p>
+      <button id="run">Run selected backend/provider</button>
+      <button id="download" disabled>Download report</button>
+      <label>Backend <select id="backend"><option value="direct">Direct</option><option value="diffusion">Diffusion</option></select></label>
+      <label>Provider <select id="provider"><option value="wasm">WASM</option><option value="webgpu">WebGPU</option></select></label>
+      <pre id="output">Not run.</pre>
+    </main>
+    <script type="module" src="./parity.js"></script>
+  </body>
+</html>

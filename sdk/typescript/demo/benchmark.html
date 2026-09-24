@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vons ONNX Runtime Web benchmark</title>
+  </head>
+  <body>
+    <main>
+      <h1>Vons ONNX Runtime Web benchmark</h1>
+      <p>Run with query parameters such as <code>?backend=direct&amp;provider=wasm&amp;sessions=5&amp;warmup=10&amp;repeats=100</code>.</p>
+      <button id="download-report" type="button" hidden>Download raw report</button>
+      <pre id="output">Waiting for benchmark parameters.</pre>
+    </main>
+    <script type="module" src="./benchmark.js"></script>
+  </body>
+</html>

@@ -1,0 +1,55 @@
+name: Experience report
+description: Share what worked, failed or remained unclear when trying Vons.
+title: "[Experience] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Positive and negative experiences are welcome, in English or Korean.
+        This is a public report once the repository is public. Use synthetic or
+        redacted examples. Do not upload secrets, private prompts, customer traces,
+        restricted data or model weights. A report is not benchmark validation.
+  - type: dropdown
+    id: path
+    attributes:
+      label: What did you try?
+      options:
+        - Documentation or installation
+        - Deterministic contract / KASI adapter
+        - Synthetic data walkthrough
+        - Model inference with separately supplied assets
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or source identity
+      description: Commit, release manifest digest or explicitly unknown; include asset digest for inference.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Scenario and environment
+      description: Your goal, OS, Python or Node version, device, runtime and provider. Omit personal details.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Expected and observed behavior
+      description: Include the command or steps, what helped, what failed and limitations.
+    validations:
+      required: true
+  - type: textarea
+    id: counts
+    attributes:
+      label: Counts and optional safe evidence
+      description: Attempted / successful / abstained / failed with definitions; explain overlaps. Use unavailable where unmeasured. Link only reviewed evidence.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Public content check
+      options:
+        - label: I reviewed this report for secrets, personal information and restricted material, and may share its contents.
+          required: true

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vons ONNX Runtime Web smoke</title>
+  </head>
+  <body>
+    <main>
+      <h1>Vons ONNX Runtime Web smoke</h1>
+      <p>This harness is intentionally local-only. It reports runtime evidence; it is not a benchmark.</p>
+      <button data-backend="direct">Run Direct / WASM</button>
+      <button data-backend="diffusion">Run Diffusion / WASM</button>
+      <button data-backend="direct-webgpu">Try Direct / WebGPU</button>
+      <button data-backend="diffusion-webgpu">Try Diffusion / WebGPU</button>
+      <pre id="output">Not run.</pre>
+    </main>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

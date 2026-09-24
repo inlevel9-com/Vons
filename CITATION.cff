@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this research source, cite this version and the accompanying publications when available."
+type: software
+title: "Vons: Compact Local Decision Models for Frontier-Agent Workflows"
+version: 0.1.0
+authors:
+  - family-names: Ahn
+    given-names: Kwangseob
+    affiliation: "INLEVEL9 / SEJONG UNIV."
+    email: oswarld@inlevel9.com
+abstract: "Research source for bounded local candidate selection and abstention, with host-owned execution and consent."

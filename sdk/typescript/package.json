@@ -1,0 +1,33 @@
+{
+  "name": "@vons/decision-sdk",
+  "version": "0.1.0",
+  "description": "Contract and host-boundary SDK for Vons decision models",
+  "type": "module",
+  "dependencies": {
+    "@huggingface/tokenizers": "0.2.0",
+    "onnxruntime-web": "1.30.0"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./onnx": "./src/onnx.ts"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/index.test.mjs test/onnx.test.mjs test/parity.test.mjs",
+    "build:browser": "esbuild demo/main.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=demo/main.js",
+    "build:benchmark": "esbuild demo/benchmark.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=demo/benchmark.js",
+    "build:parity": "esbuild demo/parity.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=demo/parity.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "private": true,
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "SEE LICENSE IN LICENSE"
+}

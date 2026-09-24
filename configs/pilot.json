@@ -1,0 +1,15 @@
+{
+  "model_id": "vons-pilot-direct",
+  "backend": "direct",
+  "option_count": 32,
+  "encoder": {"name": "google/bert_uncased_L-4_H-256_A-4", "revision": "387825ce42dbb39b87911cdf8e383ee3b25184f8", "max_tokens": 512},
+  "data": {"path": "data/generated/pilot.jsonl", "manifest": "artifacts/pilot/data-manifest.json"},
+  "seed": 7,
+  "epochs": 3,
+  "batch_size": 16,
+  "learning_rate": 0.00005,
+  "diffusion_steps": 32,
+  "inference_steps": 4,
+  "device": "auto",
+  "target_bundle_bytes": 67108864
+}

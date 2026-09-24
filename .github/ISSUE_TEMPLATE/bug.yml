@@ -1,0 +1,31 @@
+name: Bug report
+description: Report unexpected behavior with a minimal safe reproduction.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For security issues, contact oswarld@inlevel9.com privately with a brief,
+        nonsensitive description first. Do not post secrets or restricted inputs.
+        English and Korean reports are welcome.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Version and environment
+      description: Source revision or release manifest, OS, runtime version and optional model/provider identity.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Exact command and preferably synthetic input; remove personal information and credentials.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: Include safe error output, frequency and any workaround.
+    validations:
+      required: true

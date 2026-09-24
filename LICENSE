@@ -1,0 +1,104 @@
+Vons Community and Commercial License 1.0
+SPDX-License-Identifier: LicenseRef-Vons-Community-Commercial-1.0
+
+1. Scope and definitions
+
+"Licensor" means each copyright holder who makes material available under this
+license. "Software" means the Vons-owned source code, configuration, tests and
+supporting software documentation accompanied by this license, including copies
+and modifications. "You" means the individual or legal entity exercising the
+permissions below, including persons acting on that entity's behalf.
+
+This license does not cover material with a separate license notice. In
+particular, the paper and Tech Report and their original research figures are
+licensed separately under CC BY 4.0. Third-party dependencies, upstream model
+assets, datasets, trademarks and logos are not relicensed by this document.
+No model weights or benchmark datasets are supplied with this source release.
+
+"Noncommercial Use" means personal learning, independent noncommercial
+research, or noncommercial education, research or public-benefit activity by a
+nonprofit or educational institution, where the activity is not undertaken for
+commercial advantage, monetary compensation, or on behalf of a business.
+Nonprofit or educational status alone does not make commercial activity
+Noncommercial Use. Unrestricted donations that do not buy a service or benefit
+do not by themselves make an otherwise qualifying activity commercial.
+
+"Commercial Use" includes paid consulting or client work; use in or to support
+a monetized product, service, SaaS, API, hosted or managed service; internal
+business operations; and evaluation, research or deployment by, for, or on
+behalf of a for-profit enterprise. Contractors and affiliates acting for such
+an enterprise require the same permission. Personal use by an employee outside
+their employment, without business benefit, may qualify as Noncommercial Use.
+
+2. Free community permission
+
+Subject to this license, each Licensor grants You a worldwide, nonexclusive,
+royalty-free copyright license to use, reproduce, study, modify, display and
+distribute the Software solely for Noncommercial Use. You may provide access
+to an otherwise qualifying noncommercial service under these conditions.
+Only rights that a Licensor is entitled to grant are included.
+
+3. Redistribution and attribution
+
+When distributing copies or substantial portions of the Software, including
+modified copies or a compiled form, You must:
+
+(a) retain this license, copyright notices and attribution notices;
+(b) clearly identify Your modifications and preserve their provenance;
+(c) identify the Vons version or source revision used where available; and
+(d) convey these same use restrictions for the covered Software, without
+    representing that You can grant Commercial Use rights.
+
+Do not remove notices, misrepresent origin, or imply endorsement by a Licensor,
+INLEVEL9, Sejong University or any other named institution. For research that
+uses Vons, include an appropriate citation to the software and relevant paper
+or Tech Report when reporting results. An unavailable DOI is not required.
+Attribution or citation does not authorize an otherwise restricted use.
+
+4. Enterprise and commercial permission
+
+Commercial Use is not granted by this license. It requires a separate written
+commercial agreement from the relevant Licensor before the activity begins.
+There is no automatic enterprise evaluation or free-trial exception. Contact
+oswarld@inlevel9.com to arrange the scope, fees and permitted entities.
+This license sets no price, billing unit, service level or support commitment.
+A commercial agreement applies only to the parties and scope it identifies.
+
+5. Outputs and independent rights
+
+This license claims no ownership or royalty over Your inference outputs merely
+because they were produced using the Software. Outputs do not authorize an
+unlicensed deployment and may contain material subject to independent rights.
+Your inputs remain subject to their own rights and permissions.
+
+No trademark, logo, certification or endorsement rights are granted, except
+the descriptive use needed to comply with the notices above. No patent license
+is granted by this document. Statutory exceptions and other independently
+obtained permissions are unaffected. This license does not revoke rights
+previously granted under another license for an earlier copy, and does not
+restrict separately licensed third-party components.
+
+6. Termination and cure
+
+Your permissions terminate automatically if You materially breach this
+license. They are reinstated when the breach is cured within 30 days after
+You first discover it, provided this is Your first breach. Otherwise written
+reinstatement from the relevant Licensor is required. Termination does not
+affect compliant recipients' direct permissions or obligations that by their
+nature survive, including the notices and disclaimers below.
+
+7. Warranty disclaimer and liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED
+"AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE AND
+NONINFRINGEMENT. THE LICENSORS ARE NOT LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY ARISING FROM THE SOFTWARE OR ITS USE, WHETHER IN CONTRACT, TORT OR
+OTHERWISE. NOTHING HERE EXCLUDES LIABILITY THAT CANNOT LAWFULLY BE EXCLUDED.
+
+8. General
+
+Rights not expressly granted are reserved. No later license version applies
+automatically. If a provision is unenforceable, the remaining provisions remain
+in effect to the extent permitted by law. This is a source-available license
+with use restrictions; it is not an OSI-approved open-source license.

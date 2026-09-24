@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vons"
+version = "0.1.0"
+description = "Small local decision models for frontier-agent workflows"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "LicenseRef-Vons-Community-Commercial-1.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Vons contributors" }]
+dependencies = []
+
+[project.optional-dependencies]
+train = ["numpy>=1.26", "torch>=2.2", "transformers>=4.40", "safetensors>=0.4"]
+export = ["onnx>=1.16", "onnxruntime>=1.18", "onnxscript>=0.5"]
+ollama = ["ollama>=0.3"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+vons = "vons.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["vons*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# Preserve acquired upstream evidence byte-for-byte; it is not Vons source.
+extend-exclude = ["data/restricted"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

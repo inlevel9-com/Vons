@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Vons — Local Decisions",
+  "version": "0.1.0",
+  "description": "Compare your candidate choices locally. Import a Vons model bundle; the host stays in control.",
+  "minimum_chrome_version": "114",
+  "permissions": ["sidePanel"],
+  "icons": {
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  },
+  "action": {"default_title": "Open Vons"},
+  "background": {"service_worker": "background.mjs", "type": "module"},
+  "side_panel": {"default_path": "panel.html"},
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; connect-src 'self'; worker-src 'self'; style-src 'self'; img-src 'self'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+  }
+}

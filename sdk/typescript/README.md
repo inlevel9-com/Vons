@@ -36,6 +36,11 @@ values, not the repeated benchmark protocol.
 
 ## Source preview
 
+For a UI that does not require serving the development workspace, build the
+[Chrome side-panel extension](extension/README.md) with `npm run build:extension`.
+It packages the runtime locally and accepts a user-selected, hash-verified model
+folder. The guide explains installation and the separate model requirement.
+
 This package is private in npm metadata until an npm release is requested.
 Its `files` allowlist includes source, this guide and the software license. Models, tokenizers,
 datasets, generated demo JavaScript and dependencies are intentionally excluded

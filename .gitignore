@@ -34,6 +34,10 @@
 /docs/assets/*
 !/docs/assets/inlevel9-signature.png
 !/docs/assets/inlevel9-signature-dark.png
+!/docs/assets/vons-extension-icon-16.png
+!/docs/assets/vons-extension-icon-32.png
+!/docs/assets/vons-extension-icon-48.png
+!/docs/assets/vons-extension-icon-128.png
 /configs/*
 !/configs/pilot.json
 !/configs/pilot-diffusion.json
@@ -48,6 +52,7 @@
 !/sdk/typescript/src/
 !/sdk/typescript/test/
 !/sdk/typescript/demo/
+!/sdk/typescript/extension/
 
 # Raw/generated data, weights, evidence packets and local publications.
 data/
@@ -86,6 +91,9 @@ restricted/
 *.7z
 *.dmg
 *.pdf
+# Only the exact reviewed publication bytes are eligible for staging.
+!/docs/publications/vons-paper-v1.0.pdf
+!/docs/publications/vons-tech-report-v1.0.1.pdf
 
 # Credentials, machine-specific config, private prompts and service caches.
 .env

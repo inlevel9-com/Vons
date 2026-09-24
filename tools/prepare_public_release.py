@@ -20,7 +20,7 @@ DENIED_PARTS = {
     "artifacts", "reports", "research", "private", "restricted", "models",
     "weights", "checkpoints", "releases", ".aws", ".ssh", ".cache",
 }
-TEXT_SUFFIXES = {".py", ".ts", ".mjs", ".md", ".json", ".toml", ".yml", ".cff", ".html"}
+TEXT_SUFFIXES = {".py", ".ts", ".mjs", ".md", ".json", ".toml", ".yml", ".cff", ".html", ".css"}
 TEXT_NAMES = {".gitignore", ".gitattributes", "LICENSE", "NOTICE"}
 PATTERNS = {
     "private-key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),

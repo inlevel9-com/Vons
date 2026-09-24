@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vons — Local Decisions</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header>
+    <img src="brand.png" alt="INLEVEL9" width="132" height="23">
+    <span class="version">RESEARCH PREVIEW</span>
+  </header>
+  <main>
+    <div class="intro"><p class="eyebrow">YOUR OPTIONS. YOUR CONTROL.</p><h1>A little help<br>with the next choice.</h1><p>Compare a few candidates with a model on your device. You decide what happens next.</p></div>
+    <section class="model" aria-labelledby="model-heading">
+      <div class="section-title"><h2 id="model-heading">01 <span>Choose a model</span></h2><span id="model-badge" class="badge">Not loaded</span></div>
+      <p id="model-description">Import a Vons ONNX bundle folder. Model weights are supplied separately.</p>
+      <label class="file-button" for="bundle-files">Import model folder <span aria-hidden="true">↗</span></label>
+      <input id="bundle-files" type="file" webkitdirectory multiple class="visually-hidden">
+      <label class="remember"><input id="remember" type="checkbox"> Keep this model on this device</label>
+      <div class="model-actions"><button id="forget" type="button" class="text-button" disabled>Remove model</button><a href="https://huggingface.co/INLEVEL9/Vons" target="_blank" rel="noreferrer">Bundle guide ↗</a></div>
+    </section>
+    <form id="decision-form">
+      <div class="section-title"><h2>02 <span>Frame your decision</span></h2><button id="example" type="button" class="text-button">Use example</button></div>
+      <label for="state">Context</label><textarea id="state" rows="3" maxlength="20000" placeholder="What does the model need to know?" required></textarea>
+      <label for="question">Question</label><input id="question" maxlength="2000" placeholder="Which option fits this situation?" required>
+      <label for="options">Candidates <span class="hint">One per line · 2–32</span></label><textarea id="options" rows="4" maxlength="20000" placeholder="First option&#10;Second option" required></textarea>
+      <details><summary>Runtime settings</summary><label for="provider">Execution provider</label><select id="provider"><option value="wasm">WASM · CPU (default)</option value="webgpu">WebGPU · experimental</option></select><p class="hint">WebGPU requires a compatible adapter. Failed requests stay visible; no silent fallback.</p></details>
+      <div class="run-actions"><button id="run" type="submit" disabled>Compare candidates <span aria-hidden="true">→</span></button><button id="cancel" type="button" hidden>Cancel</button></div>
+      <p id="status" role="status" aria-live="polite">Start by importing a model. Prompts stay in this panel.</p>
+    </form>
+    <section id="result" class="result" aria-labelledby="result-heading" hidden>
+      <div class="section-title"><h2 id="result-heading">03 <span>Review the proposal</span></h2><button id="copy" type="button" class="text-button">Copy JSON</button></div>
+      <p id="decision-label" class="eyebrow"></p><h3 id="choice"></h3><p id="reason"></p>
+      <ol id="ranking"></ol><p id="timing" class="hint"></p>
+      <p class="boundary">Scores are uncalibrated model outputs. A proposal is not permission to act.</p>
+      <details><summary>Response and provenance</summary><pre id="raw"></pre></details>
+    </section>
+    <footer><p>Local processing. No telemetry. No page access.</p><p>Text and decisions are not saved. Closing the panel ends the session. Only a model you choose to keep is stored locally.</p><nav><a href="privacy.html" target="_blank">Privacy &amp; terms</a><a href="https://huggingface.co/INLEVEL9/Vons/tree/main/docs/publications" target="_blank" rel="noreferrer">Research ↗</a></nav></footer>
+  </main>
+  <script src="panel.js" type="module"></script>
+</body>
+</html>

@@ -12,16 +12,19 @@
     "./onnx": "./src/onnx.ts"
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test test/index.test.mjs test/onnx.test.mjs test/parity.test.mjs",
+    "test": "node --experimental-strip-types --test test/index.test.mjs test/onnx.test.mjs test/parity.test.mjs test/extension.test.mjs",
     "build:browser": "esbuild demo/main.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=demo/main.js",
     "build:benchmark": "esbuild demo/benchmark.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=demo/benchmark.js",
-    "build:parity": "esbuild demo/parity.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=demo/parity.js"
+    "build:parity": "esbuild demo/parity.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=demo/parity.js",
+    "build:extension": "node extension/build.mjs",
+    "typecheck:extension": "tsc -p extension/tsconfig.json"
   },
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
   },
   "private": true,
   "files": [

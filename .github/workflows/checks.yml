@@ -2,7 +2,34 @@ name: Source checks
 
 on:
   push:
+    paths:
+      - '.github/workflows/checks.yml'
+      - 'vons/**'
+      - 'tools/**'
+      - 'tests/**'
+      - 'configs/**'
+      - 'sdk/**'
+      - 'docs/assets/inlevel9-signature.png'
+      - 'docs/assets/vons-extension-icon-*.png'
+      - 'pyproject.toml'
+      - '.gitignore'
   pull_request:
+    paths:
+      - '.github/workflows/checks.yml'
+      - 'vons/**'
+      - 'tools/**'
+      - 'tests/**'
+      - 'configs/**'
+      - 'sdk/**'
+      - 'docs/assets/inlevel9-signature.png'
+      - 'docs/assets/vons-extension-icon-*.png'
+      - 'pyproject.toml'
+      - '.gitignore'
+  workflow_dispatch:
+
+concurrency:
+  group: source-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -36,3 +63,5 @@ jobs:
       - run: npm run build:browser
       - run: npm run build:benchmark
       - run: npm run build:parity
+      - run: npm run typecheck:extension
+      - run: npm run build:extension

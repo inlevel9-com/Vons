@@ -11,7 +11,11 @@ tags:
   - onnx
 ---
 
+![INLEVEL9](../docs/assets/inlevel9-signature.png)
+
 # Vons
+
+**Plan globally. Decide locally. Keep the host in control.**
 
 Compact local decision models for frontier-agent workflows.
 
@@ -37,18 +41,32 @@ See [the model card](../docs/MODEL_CARD.md),
 
 This source preview is distributed through [INLEVEL9/Vons](https://huggingface.co/INLEVEL9/Vons).
 Source and contribution reports belong in
-[inlevel9-com/Vons](https://github.com/inlevel9-com/Vons). The paper and Tech Report are coming soon and intentionally excluded while
-v1.0 manuscripts are prepared and reviewed. The software remains a 0.1.0
+[inlevel9-com/Vons](https://github.com/inlevel9-com/Vons). The reviewed paper and Tech Report are included as PDF downloads below. The software remains a 0.1.0
 research preview. No pretrained weights or working Space are announced.
 
 Follow the [community guide](../docs/COMMUNITY.md) for the no-weight walkthrough,
 experience and reproduction reports, and the
-[contribution guide](../CONTRIBUTING.md) for review expectations. The paper is
-being prepared for [arXiv](../docs/publications/ARXIV.md). User reports are not
+[contribution guide](../CONTRIBUTING.md) for review expectations. The paper's
+[arXiv submission record](../docs/publications/ARXIV.md) is available. User reports are not
 independent research validation.
 
 Maintainers can use the [Hub upload guide](../docs/HUB_PUBLISHING.md) to prepare
 an organization card, source preview and later a separately validated Space.
+
+## Paper and Tech Report
+
+| Publication | Download |
+| --- | --- |
+| Vons: A Compact, Host-Controlled Decision Component for Agent Workflows — paper v1.0, final editorial revision | [PDF · 15 pages](../docs/publications/vons-paper-v1.0.pdf) |
+| Vons: Compact Decision Models for Frontier-Agent Workflows — Technical Report v1.0.1 | [PDF · 20 pages](../docs/publications/vons-tech-report-v1.0.1.pdf) |
+
+Articles and original figures use **CC BY 4.0**. Their version, SHA-256 digests
+and verification scope are in the [publication index](../docs/publications/README.md).
+These preprints preserve negative results and missing measurements. The paper
+was submitted to arXiv under **submission number 8127259**; the last checked
+status on **2026-09-25** is **on hold** (undergoing checks). This tracking number
+is not a public arXiv article identifier. No announcement or peer-review
+acceptance is claimed.
 
 ## Local use
 
@@ -66,12 +84,12 @@ Raw restricted benchmark data and private evidence are not redistributed here.
 
 ## Terms
 
-Source is distributed under [Vons Community and Commercial License 1.0](../LICENSE):
+Source is distributed under [Vons Community and Commercial License 1.0](https://huggingface.co/INLEVEL9/Vons/blob/main/LICENSE):
 qualifying noncommercial use is free; enterprise and other commercial use require
 a separate written agreement. Contact oswarld@inlevel9.com for commercial terms.
 This is source-available software, not OSI-approved open source.
 
-The paper and Tech Report are prepared under [CC BY 4.0](../docs/publications/LICENSE.md).
+The paper and Tech Report are distributed under [CC BY 4.0](../docs/publications/LICENSE.md).
 This permits commercial article reuse with attribution; software rights are
 separate. Third-party assets retain their own terms. See
 [licensing scope](../docs/LICENSING.md). This source release does not establish research validation or a commercial

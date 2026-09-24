@@ -1,8 +1,25 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const onnx = await import("../src/onnx.ts");
+
+// Deliberately synthetic: public contract tests must not require pilot weights.
+function testManifest() {
+  const record = (path, role, bytes = 4) => ({
+    path, role, bytes, sha256: "1".repeat(64), runtime_loaded: true, model_asset: true,
+  });
+  return {
+    schema_version: "vons.bundle.manifest/v1",
+    manifest: { path: "bundle-manifest.json", sha256: null, self_hash_excluded: true },
+    metadata: { backend: "direct", option_count: 2, sequence_length: 32 },
+    files: [
+      record("model.onnx", "model_graph"),
+      record("tokenizer.json", "tokenizer"),
+      record("tokenizer_config.json", "tokenizer"),
+    ],
+    summary: { model_asset_bytes: 12, complete_download_bytes: 12 },
+  };
+}
 
 test("structured state and the training text template are deterministic", () => {
   const question = { id: "q", type: "choice", prompt: "Pick", options: ["A"] };
@@ -21,20 +38,29 @@ test("default diffusion noise is deterministic Gaussian, not a bounded uniform s
 test("tokenizer ids, masks, and overflow behavior are explicit", async () => {
   const { Tokenizer } = await import("@huggingface/tokenizers");
   const tokenizer = new Tokenizer(
-    JSON.parse(await readFile("../../artifacts/pilot/tokenizer/tokenizer.json", "utf8")),
-    JSON.parse(await readFile("../../artifacts/pilot/tokenizer/tokenizer_config.json", "utf8")),
+    {
+      version: "1.0",
+      added_tokens: [],
+      normalizer: { type: "BertNormalizer", clean_text: true, handle_chinese_chars: true, strip_accents: null, lowercase: true },
+      pre_tokenizer: { type: "BertPreTokenizer" },
+      post_processor: { type: "BertProcessing", sep: ["[SEP]", 2], cls: ["[CLS]", 1] },
+      decoder: { type: "WordPiece", prefix: "##", cleanup: true },
+      model: { type: "WordPiece", unk_token: "[UNK]", continuing_subword_prefix: "##", max_input_chars_per_word: 100,
+        vocab: { "[UNK]": 0, "[CLS]": 1, "[SEP]": 2, ready: 3, question: 4, pick: 5, candidate: 6, ":": 7, a: 8, b: 9, "/": 10, "?": 11, "中": 12, "文": 13 } },
+    },
+    { tokenizer_class: "BertTokenizer", unk_token: "[UNK]", cls_token: "[CLS]", sep_token: "[SEP]", model_max_length: 512 },
   );
   const question = { id: "q", type: "choice", prompt: "Pick", options: ["A/B?", "中文"] };
   const values = onnx.tokenizeCandidates(tokenizer, "ready", question, question.options, 512);
-  assert.equal(values[0].inputIds[0], 101);
-  assert.equal(values[0].inputIds.at(-1), 102);
+  assert.deepEqual(values[0].inputIds, [1, 3, 4, 7, 5, 6, 7, 8, 10, 9, 11, 2]);
+  assert.deepEqual(values[1].inputIds, [1, 3, 4, 7, 5, 6, 7, 12, 13, 2]);
   assert.equal(values[0].inputIds.length, values[0].attentionMask.length);
   assert.deepEqual(new Set(values[0].attentionMask), new Set([1]));
   assert.throws(() => onnx.tokenizeCandidates(tokenizer, "x", question, ["x".repeat(10000)], 4), /bundle limit/);
 });
 
 test("manifest integrity is checked before a runtime session is created", async () => {
-  const manifest = JSON.parse(await readFile("../../artifacts/pilot/bundle-manifest-v1.json", "utf8"));
+  const manifest = testManifest();
   const original = manifest.files.find((item) => item.role === "model_graph");
   original.sha256 = "0".repeat(64);
   const fetch = async () => new Response(new Uint8Array(original.bytes), { status: 200 });
@@ -45,7 +71,7 @@ test("manifest integrity is checked before a runtime session is created", async 
 });
 
 test("release runs can pin manifest bytes and encoded traversal is rejected", async () => {
-  const manifest = JSON.parse(await readFile("../../artifacts/pilot/bundle-manifest-v1.json", "utf8"));
+  const manifest = testManifest();
   await assert.rejects(
     onnx.createOnnxWebBackend({
       manifest,

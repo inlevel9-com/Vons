@@ -1,9 +1,9 @@
 # Upload the Vons source preview to Hugging Face
 
-This is an owner-operated upload guide. The current local preparation contains
-95 reviewed source/documentation files. The paper and Tech Report are coming
-soon while their v1.0 revisions are prepared; manuscript files, model weights,
-restricted data and private records are excluded.
+This guide covers the completed upload and future owner-operated updates. The
+initial upload contains 97 reviewed files, including the final paper and Tech Report PDFs. Drafts,
+source manuscript bundles, model weights, restricted data and private records
+are excluded.
 
 ## Destination and scope
 
@@ -12,10 +12,13 @@ The organization page [INLEVEL9](https://huggingface.co/INLEVEL9) is its parent,
 not a folder-upload destination. There is no need to create another repository,
 a dataset or a Space for this source preview.
 
-At the last read-only check on 2026-09-25, the Hub repository was public and
-contained only `.gitattributes` and a minimal Apache-2.0 README. The prepared
-root README and LICENSE replace that placeholder with the selected Vons
-Community and Commercial License 1.0. The article CC BY 4.0 terms are separate.
+The owner authorized the Hub upload on 2026-09-25. The verified
+[initial publication commit](https://huggingface.co/INLEVEL9/Vons/commit/49ad2ef694ffead3be170dd32d43a248edb08c82)
+contains all 97 reviewed files. The Hub generated two PDF LFS tracking lines in
+`.gitattributes`; the other 96 files matched the reviewed export exactly. The
+public model card now uses the Vons Community and Commercial License 1.0.
+The article CC BY 4.0 terms are separate. A later documentation update records
+the arXiv submission status without adding models or draft material.
 
 A commit to this public repository makes uploaded files publicly readable.
 Uploading source does not create hosted inference, pretrained weights or a
@@ -54,8 +57,8 @@ Run the source audit from the Vons checkout:
 python3 tools/prepare_public_release.py
 ```
 
-The current prepared upload folder is `releases/huggingface-source-v7`.
-It contains the 95 reviewed files plus a local `RELEASE_MANIFEST.json` receipt
+The initial uploaded snapshot is `releases/huggingface-source-v8`.
+It contains the 97 reviewed files plus a local `RELEASE_MANIFEST.json` receipt
 with every file's byte count and SHA-256 digest. Its root README is the Hub model
 card; the working-tree README remains the GitHub landing page.
 
@@ -63,7 +66,7 @@ This export is a snapshot. If you edit any public source or documentation after
 preparation, create a fresh versioned directory and use that path below:
 
 ```sh
-python3 tools/prepare_public_release.py --target huggingface --output releases/huggingface-source-v8
+python3 tools/prepare_public_release.py --target huggingface --output releases/huggingface-source-next
 ```
 
 The exporter refuses to overwrite an existing directory. Never point the upload
@@ -71,13 +74,13 @@ command at the development checkout or an old export containing stale terms.
 
 ## 3. Upload
 
-From the Vons checkout, after reviewing the v7 export:
+For a subsequent update, create and review a fresh export, then upload it:
 
 ```sh
-hf upload INLEVEL9/Vons releases/huggingface-source-v7 . \
+hf upload INLEVEL9/Vons releases/huggingface-source-next . \
   --repo-type model \
   --exclude RELEASE_MANIFEST.json \
-  --commit-message "Publish Vons source preview; manuscripts coming soon"
+  --commit-message "Update reviewed Vons source preview"
 ```
 
 The final `.` places the files at the repository root while preserving nested
@@ -102,9 +105,9 @@ Open [the model card](https://huggingface.co/INLEVEL9/Vons) and
   It must no longer identify the software as Apache-2.0 or CC BY 4.0.
 - Root `LICENSE` and `sdk/typescript/LICENSE` contain the same custom terms.
 - Source paths such as `vons/`, `tools/`, `tests/` and `sdk/typescript/` are present.
-- The publication index says coming soon; no paper/Tech Report PDF or manuscript
-  source bundle is uploaded. `docs/publications/` contains only its index,
-  article-license notice and arXiv preparation checklist.
+- The Paper and Tech Report links open the 15-page paper and 20-page report.
+  Their digests match the publication index. No manuscript source bundle or
+  private review material is uploaded.
 - Logo/documentation links resolve, and a signed-out visitor can read the card.
 
 Save the resulting Hub commit URL with the local release manifest. GitHub
@@ -113,6 +116,8 @@ For subsequent source changes, create a new reviewed export and repeat the same
 upload command with its new path. Add research files only after their separate
 v1.0 review and an explicit public-allowlist update.
 
-The owner performs authentication, commit, push and publication. This local
-preparation has not executed an upload or changed remote visibility.
+The initial Hub upload and publication-document update were owner-authorized.
+GitHub commits, pushes and visibility changes remain owner-operated. Local
+Chrome extension source and packages are prepared separately; the initial
+97-file Hub upload does not include the extension.
 Official CLI/upload guidance checked 2026-09-25.

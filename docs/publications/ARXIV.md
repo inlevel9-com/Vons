@@ -1,19 +1,42 @@
-# arXiv preparation
+# arXiv submission
 
-The paper is being improved toward v1.0 for a future arXiv submission. No
-manuscript, submission bundle, identifier, acceptance or public paper is
-included in the current source release. Community-platform goals are future
-work, not measured adoption or implemented features. arXiv performs content
-moderation, not journal peer review; see its
+The [reviewed paper PDF](vons-paper-v1.0.pdf) is included in the source release,
+alongside the [Technical Report](vons-tech-report-v1.0.1.pdf). The paper was
+submitted under **submission number 8127259**. The account page confirmed
+**Article submitted**; the last checked status on **2026-09-25** is **on hold**.
+This is a submission tracking number, not a public arXiv article identifier.
+No public article URL or acceptance is announced. arXiv performs
+content moderation, not journal peer review; see its
 [moderation policy](https://info.arxiv.org/help/moderation/index.html).
 
-## Release target
+## Submitted artifact
 
-Prepare the paper and Tech Report as separately reviewed v1.0 research
-artifacts. Verify exact final bytes, compile the submission sources in a clean
-environment, and inspect the resulting PDF before adding public download links.
-A preview PDF does not establish that a TeX source package compiles. Maintain
-historical drafts privately and preserve measured values and evidence provenance.
+| Field | Submitted value |
+| --- | --- |
+| Submission number | 8127259 |
+| Title | Vons: A Compact, Host-Controlled Decision Component for Agent Workflows |
+| Author | Kwangseob Ahn (INLEVEL9 / SEJONG UNIV.) |
+| Category | cs.AI |
+| License | CC BY 4.0 |
+| PDF | `vons-paper-v1.0.pdf`, 15 pages |
+| SHA-256 | `ae0e09c60e17a98b52bb25c611b2489d10b18bd98d87974f2e8dd25d746a5fc8` |
+
+arXiv reported **Submission processed OK**. The author confirmed the processed
+PDF and metadata before approving final submission. The submitted abstract is
+an abridged version preserving the manuscript's findings and limitations.
+Journal reference and DOI are blank. The Tech Report is available alongside
+the paper in this repository; it was not submitted as a second arXiv paper.
+
+According to the [official status guidance](https://info.arxiv.org/help/submit_status.html#on-hold),
+on-hold submissions undergo checks and may require no action. Follow any
+instructions sent by arXiv; do not create a duplicate submission. Add a public
+article link only after arXiv assigns and announces one.
+
+Exact local PDF hashes match the reviewed final manuscripts, and all 35 pages
+have been inspected. The documents were generated with Typst, not TeX/LaTeX.
+The paper used the genuine non-TeX PDF submission route. An independent source rebuild remains
+unverified; see the [publication index](README.md) for exact verification scope.
+Historical drafts and claim-to-source records remain private.
 
 ## Research scope
 
@@ -41,17 +64,19 @@ rows and unrelated repository files outside the submission bundle.
 arXiv prefers TeX/LaTeX and requires source when the PDF was made from TeX/LaTeX.
 Include figure files instead of external figure links. See the official
 [submission overview](https://info.arxiv.org/help/submit/index.html).
+For a genuine non-TeX PDF, follow the [PDF requirements](https://info.arxiv.org/help/submit_pdf.html),
+including embedded outline fonts and no encryption or active content.
 For a TeX package, include the necessary bibliography source or compatible
 generated bibliography and confirm the top-level file builds from the bundle
 root. Inspect arXiv's processed PDF as well as the local build. See
 [TeX submission guidance](https://info.arxiv.org/help/submit_tex.html).
 
-## Author submission handoff
+## Checklist for future revisions
 
 1. Review the exact final manuscript, source bundle, hashes and remaining limits.
 2. Confirm title, abstract, author affiliation, article rights and a subject
-   category based on the paper's actual contribution. `cs.AI` and `cs.LG` are
-   candidates to assess, not confirmed classifications.
+   category based on the paper's actual contribution. The current submission's
+   primary category is `cs.AI`.
 3. Check the account and any applicable [endorsement requirement](https://info.arxiv.org/help/endorsement.html).
 4. Prepare the upload and metadata; verify the processed PDF and the selected
    [arXiv license](https://info.arxiv.org/help/license/index.html). CC BY 4.0 is

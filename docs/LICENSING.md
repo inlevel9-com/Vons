@@ -1,6 +1,7 @@
 # Licensing and distribution scope
 
-The owner selected the following preparation on 2026-09-24:
+The owner selected these terms on 2026-09-24. This local preparation is ready
+for owner-controlled source distribution:
 
 | Material | Terms |
 |---|---|
@@ -22,20 +23,20 @@ license is deliberately separate: CC BY 4.0 permits commercial article reuse
 with its attribution conditions, without granting commercial software rights.
 Affiliation is attribution and does not establish institutional endorsement.
 
-## Transition and review
+## Transition and distribution
 
-Earlier local Python metadata declared Apache-2.0. The new source preparation
+Earlier local Python metadata declared Apache-2.0. This source release
 uses `LicenseRef-Vons-Community-Commercial-1.0` and includes its exact text.
 Frozen research snapshots retain their historical metadata and measurements.
 This change makes no claim that rights previously granted under Apache-2.0 can
 be withdrawn. Existing third-party licenses and notices remain effective.
 
-The license text is a prepared custom agreement for owner review before actual
-distribution; legal review of the specific grant, ownership and intended
-commercial boundary remains appropriate. This preparation has no public Git
-history, commit, package publication or adopted commercial customer contract.
-The source list and hashes describe which bytes are prepared; they do not prove
-rights over an unreviewed third-party asset.
+The root license contains the custom terms for this source distribution.
+A separate written agreement is required for enterprise or commercial software
+use; publishing the source does not execute a customer contract. The source
+list and hashes identify the reviewed files, and do not establish rights over
+an unreviewed third-party asset. No manuscript or model weights accompany this
+source release.
 
 Commercial contracts, pricing, support and optional conformance services are
 separate from this free community grant. No certification claim is made.

@@ -10,19 +10,19 @@ report what works or fails.
 | Your goal | Entry point | Current availability |
 | --- | --- | --- |
 | Understand Vons | [README](../README.md) and [model card](MODEL_CARD.md) | Included in this source preview |
-| Read the research | [Paper and Tech Report](publications/README.md) | Manuscripts in preparation; arXiv submission planned |
+| Read the research | [Paper and Tech Report](publications/README.md) | Coming soon; v1.0 manuscripts are in preparation and excluded from this release |
 | Try without weights | The walkthrough below | Deterministic contract and synthetic data only |
 | Run model inference | [TypeScript SDK](../sdk/typescript/README.md) | Requires separately obtained, reviewed model/tokenizer assets |
-| Share experience | [Experience report](https://github.com/inlevel9-com/Jons/issues/new?template=experience.yml) | Form prepared locally; repository access required until public launch |
-| Reproduce a result | [Reproduction report](https://github.com/inlevel9-com/Jons/issues/new?template=reproduction.yml) | Form prepared locally; evidence reviewed separately |
+| Share experience | [Experience report](https://github.com/inlevel9-com/Vons/issues/new?template=experience.yml) | GitHub account required to submit |
+| Reproduce a result | [Reproduction report](https://github.com/inlevel9-com/Vons/issues/new?template=reproduction.yml) | Form included; evidence reviewed separately |
 | Improve Vons | [Contributing](../CONTRIBUTING.md) | Documentation, tests and scoped code changes welcome |
 
-The destinations are [GitHub: inlevel9-com/Jons](https://github.com/inlevel9-com/Jons)
-and [Hugging Face: INLEVEL9](https://huggingface.co/INLEVEL9). On 2026-09-24,
-GitHub was private and empty with Issues enabled and Discussions disabled;
-the Hugging Face organization had no public model or organization card. These
-are launch destinations, not a claim that public software or a hosted demo is
-already available. The current software terms require a separate agreement for
+The destinations are [GitHub: inlevel9-com/Vons](https://github.com/inlevel9-com/Vons)
+and [Hugging Face: INLEVEL9/Vons](https://huggingface.co/INLEVEL9/Vons).
+The source preview includes documentation and GitHub issue forms for feedback.
+The paper and Tech Report will be added after v1.0 review; this release contains
+neither manuscript. A source upload does not provide hosted model inference.
+The current software terms require a separate agreement for
 enterprise/commercial use, including enterprise evaluation. Reading the paper
 under its article terms is separate from software use.
 

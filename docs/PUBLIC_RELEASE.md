@@ -41,9 +41,9 @@ proof of redistribution rights. Read the actual export before publishing.
 
 ## GitHub
 
-Git is initialized locally on `main`. No initial commit or remote publication
-is implied by this preparation. Review `git status` and the export manifest
-before the initial commit. Preserve a clean initial tree: `.gitignore` cannot
+The source checkout uses `main`; review `git status`, the existing commit history
+and the export manifest before publishing changes. The owner performs commits,
+pushes and visibility changes. This preparation does not perform those actions. Preserve a clean initial tree: `.gitignore` cannot
 remove already committed material from history. If existing remote history is
 later attached, review that history independently before making it public.
 
@@ -57,8 +57,9 @@ those files; do not publish the historical inputs merely to remove that skip.
 
 ## Hugging Face
 
-Upload only the generated `releases/huggingface-source` directory after reviewing
-the prepared terms and choosing the destination. Do not select the development workspace in the
+Upload only a reviewed versioned Hugging Face export to `INLEVEL9/Vons`.
+The current preparation is `releases/huggingface-source-v7`; see the
+[step-by-step upload guide](HUB_PUBLISHING.md). Do not select the development workspace in the
 Hub upload dialog. Use explicit allow/ignore patterns if using `upload_folder`;
 its handling of ignore files depends on the client version and upload method.
 
@@ -76,8 +77,8 @@ The owner selected noncommercial-free / enterprise-commercial software terms
 and CC BY 4.0 articles on 2026-09-24. The prepared root [license](../LICENSE), SDK
 license copy, package metadata and Hub card now match that source-available
 direction. [Licensing scope](LICENSING.md) explains the boundary and preserves
-earlier and third-party rights. The custom agreement is prepared for owner
-review before distribution; no commercial customer agreement is adopted here.
+earlier and third-party rights. Local preparation is complete for the owner to
+commit, push and publish; no commercial customer agreement is adopted here.
 npm publishing remains disabled with `private: true`.
 
 The Python build backend requires setuptools 77.0.3+ to include the custom SPDX

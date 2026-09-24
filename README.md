@@ -42,18 +42,20 @@ version badge.
 
 ## Read, try and participate
 
-Start with the [community guide](docs/COMMUNITY.md): read the research, try a
+Start with the [community guide](docs/COMMUNITY.md): read the documentation, try a
 deterministic example without weights, share an experience or reproduction
 report, and contribute improvements. Failures and critical feedback are welcome.
 The [contribution guide](CONTRIBUTING.md) explains review, privacy and attribution.
 
-Destinations: [GitHub: inlevel9-com/Jons](https://github.com/inlevel9-com/Jons) ·
-[Hugging Face: INLEVEL9](https://huggingface.co/INLEVEL9).
-The project name is Vons; the supplied GitHub repository slug is `Jons`.
-On 2026-09-24, the repository was private and empty and the Hub organization had
-no public models. Participation forms are prepared in this source tree; public
-access and a hosted demo are separate launch steps. The paper is being prepared
-for [arXiv](docs/publications/ARXIV.md), with no submission claimed.
+Destinations: [GitHub: inlevel9-com/Vons](https://github.com/inlevel9-com/Vons) ·
+[Hugging Face: INLEVEL9/Vons](https://huggingface.co/INLEVEL9/Vons).
+This release contains source, documentation and participation forms. The paper
+and Tech Report are **coming soon**: both are being improved toward v1.0 and
+are intentionally absent from this upload. See the
+[publication status](docs/publications/README.md) and
+[Hub release guide](docs/HUB_PUBLISHING.md). The software remains a 0.1.0 research
+preview; the manuscript v1.0 goal is not a software release or a completed result.
+No arXiv submission or hosted inference service is announced.
 
 ## Quickstart
 
@@ -163,7 +165,7 @@ INLEVEL9 / SEJONG UNIV.
 
 ## License and distribution
 
-The [Vons Community and Commercial License 1.0](LICENSE) is prepared for this
+The [Vons Community and Commercial License 1.0](LICENSE) covers this
 source release: qualifying **noncommercial use is free**; **enterprise and other
 commercial use require a separate written agreement**. Contact
 [oswarld@inlevel9.com](mailto:oswarld@inlevel9.com) for commercial terms.

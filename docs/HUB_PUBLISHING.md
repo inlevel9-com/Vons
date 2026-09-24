@@ -1,103 +1,118 @@
-# Publishing on the Hugging Face Hub
+# Upload the Vons source preview to Hugging Face
 
-The owner-provided organization is [INLEVEL9](https://huggingface.co/INLEVEL9).
-Its profile exists, but no Vons model repository or demo is announced here.
-Keep the main code and contribution workflow at
-[inlevel9-com/Jons](https://github.com/inlevel9-com/Jons).
+This is an owner-operated upload guide. The current local preparation contains
+95 reviewed source/documentation files. The paper and Tech Report are coming
+soon while their v1.0 revisions are prepared; manuscript files, model weights,
+restricted data and private records are excluded.
 
-## Choose the surface
+## Destination and scope
 
-| Surface | Purpose for Vons | Ready now? |
-| --- | --- | --- |
-| Organization card | Introduce INLEVEL9 and link research and source | Copy draft below; not published |
-| Model repository | Model card and versioned downloadable assets | Source-only export prepared; no weights included |
-| Space | A browser-accessible demonstration | Requires a separate app implementation and verification |
-| Dataset repository | Permitted, documented datasets | No dataset release prepared |
+Use the existing model repository [INLEVEL9/Vons](https://huggingface.co/INLEVEL9/Vons).
+The organization page [INLEVEL9](https://huggingface.co/INLEVEL9) is its parent,
+not a folder-upload destination. There is no need to create another repository,
+a dataset or a Space for this source preview.
 
-Uploading source files does not create a working inference service. If a model
-repository initially contains only this source preview, its card must retain
-the explicit no-weights/no-hosted-inference notice. Do not suggest
-`from_pretrained` works until a compatible model package is actually released.
+At the last read-only check on 2026-09-25, the Hub repository was public and
+contained only `.gitattributes` and a minimal Apache-2.0 README. The prepared
+root README and LICENSE replace that placeholder with the selected Vons
+Community and Commercial License 1.0. The article CC BY 4.0 terms are separate.
 
-## Upload a reviewed source preview
+A commit to this public repository makes uploaded files publicly readable.
+Uploading source does not create hosted inference, pretrained weights or a
+working `from_pretrained` package. The card states those limits explicitly.
+The main code/contribution destination is
+[inlevel9-com/Vons](https://github.com/inlevel9-com/Vons). Its visibility is
+controlled separately from Hugging Face.
 
-1. Open [New model](https://huggingface.co/new). Choose owner `INLEVEL9`, a
-   repository name such as `vons-source-preview`, and **Private** for review.
-   The example name is a proposal, not an existing repository.
-2. In **Files**, select **Add file**, then **Upload files**. Upload only a newly
-   audited export from `tools/prepare_public_release.py --target huggingface`.
-   Preserve directory paths and put its model-card `README.md` at the root.
-3. Retain the prepared custom software license and model-card metadata. Do not
-   select Apache-2.0 or CC BY 4.0 as the software license. Article rights are
-   separate. Keep the UI commit message descriptive.
-4. Read back the uploaded files, paths, rendered card and license before release.
-   For a directory with many files, the official CLI can preserve the layout:
+## 1. Install and sign in
+
+On macOS with Homebrew:
 
 ```sh
+brew install hf
 hf auth login
-hf upload INLEVEL9/vons-source-preview releases/huggingface-source-v5 . --repo-type model
+hf auth whoami
 ```
 
-The command is an upload example, not something this preparation executes.
-Use it only after confirming the actual repository name and export directory.
-Authenticate locally; never put a token in a committed file or paste it into
-an issue. See [repository and upload guidance](https://huggingface.co/docs/hub/repositories-getting-started).
+If Homebrew already installed `hf`, use `brew upgrade hf` when an update is
+needed. Current CLI versions offer browser login: follow the displayed URL and
+code, and sign in using your account with write access to `INLEVEL9/Vons`.
+`hf auth whoami` confirms the account and organization membership; membership
+alone does not guarantee repository write permission.
 
-## Make the repository public
+If your CLI asks for a token instead, create a user access token in
+[Hugging Face token settings](https://huggingface.co/settings/tokens), preferably
+scoped to write to `INLEVEL9/Vons`, and enter it at the hidden login prompt.
+Keep credentials out of source files, shell command arguments and issue reports.
+See the official [CLI guide](https://huggingface.co/docs/huggingface_hub/guides/cli).
 
-An owner can change visibility in the repository's **Settings** tab. Review the
-complete contents and history, then choose **Public** and complete the displayed
-confirmation. Private repositories return a not-found response to unauthorized
-visitors. After release, check the page and files while signed out. For a public
-Space, both the app and its source are visible. These steps are described in
-[repository settings](https://huggingface.co/docs/hub/repositories-settings).
+## 2. Use the reviewed export
 
-## Add the organization introduction
+Run the source audit from the Vons checkout:
 
-The organization's **Create a Card** action creates a static Space named
-`README`. Its `README.md` becomes the organization card when the Space is Public.
-See [organization cards](https://huggingface.co/docs/hub/organizations-cards).
-Review the following copy against current availability before publishing:
-
-```markdown
-# INLEVEL9
-
-Research, practical tools and a place to learn from what works and what fails.
-
-## Vons
-
-Vons explores compact local decision models for agent workflows. A planner
-provides state and candidate choices; the host retains execution and consent.
-
-We are preparing a source preview and an English research paper for arXiv.
-Pretrained weights and a hosted inference demo are not yet available.
-Questions, experience reports, reproductions and contributions are welcome
-through the project repository once it is public.
-
-- Website: https://inlevel9.com/
-- Source destination: https://github.com/inlevel9-com/Jons
-- Contact: oswarld@inlevel9.com
-
-Software and article terms are separate. Qualifying noncommercial software use
-is free; enterprise/commercial software use requires a written agreement.
-The paper is being prepared under CC BY 4.0.
+```sh
+python3 tools/prepare_public_release.py
 ```
 
-## Add an interactive Space later
+The current prepared upload folder is `releases/huggingface-source-v7`.
+It contains the 95 reviewed files plus a local `RELEASE_MANIFEST.json` receipt
+with every file's byte count and SHA-256 digest. Its root README is the Hub model
+card; the working-tree README remains the GitHub landing page.
 
-Create a Space under `INLEVEL9` and choose a suitable SDK. Static HTML suits a
-browser-only contract explorer or an independently verified local ONNX demo;
-Gradio or Docker suits a server-backed application. Current official guidance
-lists static Spaces as free and describes plan requirements for compute-backed
-Gradio/Docker Spaces. Confirm current pricing before choosing paid compute.
-See [Spaces overview](https://huggingface.co/docs/hub/spaces-overview).
+This export is a snapshot. If you edit any public source or documentation after
+preparation, create a fresh versioned directory and use that path below:
 
-A Space needs actual app files and a working build. A no-weight contract demo
-must say it is deterministic. A real model demo needs permitted assets,
-tokenizer/runtime validation, provider and failure reporting, and accurate
-download-size information. Reading and exploration should not require a new
-Vons account. Use the existing report forms for feedback before introducing a
-separate account system or feedback database.
+```sh
+python3 tools/prepare_public_release.py --target huggingface --output releases/huggingface-source-v8
+```
 
-No Hub upload, repository creation, visibility change or paid resource is
-performed by these instructions. Official documentation checked 2026-09-24.
+The exporter refuses to overwrite an existing directory. Never point the upload
+command at the development checkout or an old export containing stale terms.
+
+## 3. Upload
+
+From the Vons checkout, after reviewing the v7 export:
+
+```sh
+hf upload INLEVEL9/Vons releases/huggingface-source-v7 . \
+  --repo-type model \
+  --exclude RELEASE_MANIFEST.json \
+  --commit-message "Publish Vons source preview; manuscripts coming soon"
+```
+
+The final `.` places the files at the repository root while preserving nested
+paths. The command creates a Hub commit directly; a separate Git commit/push
+is unnecessary. It updates matching remote paths, including README and LICENSE,
+and does not request deletion of unrelated remote files. The manifest stays
+local as an audit receipt; it is not an additional source file in the allowlist.
+
+A successful command prints a repository or commit URL. For a 401/403 response,
+check the account, `INLEVEL9/Vons` write permission and credential scope; do not
+create a duplicate personal repository. Official
+[upload guidance](https://huggingface.co/docs/huggingface_hub/guides/upload)
+describes folder uploads and filtering.
+
+## 4. Verify the result
+
+Open [the model card](https://huggingface.co/INLEVEL9/Vons) and
+[Files and versions](https://huggingface.co/INLEVEL9/Vons/tree/main):
+
+- The card says this is a source preview with no pretrained weights or hosted inference.
+- License metadata uses `other`, `vons-community-commercial-1.0` and `LICENSE`.
+  It must no longer identify the software as Apache-2.0 or CC BY 4.0.
+- Root `LICENSE` and `sdk/typescript/LICENSE` contain the same custom terms.
+- Source paths such as `vons/`, `tools/`, `tests/` and `sdk/typescript/` are present.
+- The publication index says coming soon; no paper/Tech Report PDF or manuscript
+  source bundle is uploaded. `docs/publications/` contains only its index,
+  article-license notice and arXiv preparation checklist.
+- Logo/documentation links resolve, and a signed-out visitor can read the card.
+
+Save the resulting Hub commit URL with the local release manifest. GitHub
+publication, manuscript publication and a hosted demo are separate actions.
+For subsequent source changes, create a new reviewed export and repeat the same
+upload command with its new path. Add research files only after their separate
+v1.0 review and an explicit public-allowlist update.
+
+The owner performs authentication, commit, push and publication. This local
+preparation has not executed an upload or changed remote visibility.
+Official CLI/upload guidance checked 2026-09-25.

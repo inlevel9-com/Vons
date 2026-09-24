@@ -35,12 +35,11 @@ See [the model card](../docs/MODEL_CARD.md),
 
 ## Read, try and contribute
 
-The intended Hub organization is [INLEVEL9](https://huggingface.co/INLEVEL9).
-Source and contribution discussions belong in
-[inlevel9-com/Jons](https://github.com/inlevel9-com/Jons); the project name remains
-Vons. On 2026-09-24, that GitHub repository was private and empty and the Hub
-organization had no public models. No public model repository or Space is
-announced by this card.
+This source preview is distributed through [INLEVEL9/Vons](https://huggingface.co/INLEVEL9/Vons).
+Source and contribution reports belong in
+[inlevel9-com/Vons](https://github.com/inlevel9-com/Vons). The paper and Tech Report are coming soon and intentionally excluded while
+v1.0 manuscripts are prepared and reviewed. The software remains a 0.1.0
+research preview. No pretrained weights or working Space are announced.
 
 Follow the [community guide](../docs/COMMUNITY.md) for the no-weight walkthrough,
 experience and reproduction reports, and the
@@ -67,7 +66,7 @@ Raw restricted benchmark data and private evidence are not redistributed here.
 
 ## Terms
 
-Source is prepared under [Vons Community and Commercial License 1.0](../LICENSE):
+Source is distributed under [Vons Community and Commercial License 1.0](../LICENSE):
 qualifying noncommercial use is free; enterprise and other commercial use require
 a separate written agreement. Contact oswarld@inlevel9.com for commercial terms.
 This is source-available software, not OSI-approved open source.
@@ -75,5 +74,5 @@ This is source-available software, not OSI-approved open source.
 The paper and Tech Report are prepared under [CC BY 4.0](../docs/publications/LICENSE.md).
 This permits commercial article reuse with attribution; software rights are
 separate. Third-party assets retain their own terms. See
-[licensing scope](../docs/LICENSING.md). This card is a local upload preparation,
-not proof of publication or a commercial agreement.
+[licensing scope](../docs/LICENSING.md). This source release does not establish research validation or a commercial
+customer agreement.

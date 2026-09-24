@@ -1,9 +1,19 @@
 # arXiv preparation
 
-The author intends to submit the Vons paper to arXiv. No submission, identifier,
-acceptance or public announcement is claimed. The new revision is being prepared
-from the existing evidence; community-platform goals are future work, not
-measured adoption or implemented features.
+The paper is being improved toward v1.0 for a future arXiv submission. No
+manuscript, submission bundle, identifier, acceptance or public paper is
+included in the current source release. Community-platform goals are future
+work, not measured adoption or implemented features. arXiv performs content
+moderation, not journal peer review; see its
+[moderation policy](https://info.arxiv.org/help/moderation/index.html).
+
+## Release target
+
+Prepare the paper and Tech Report as separately reviewed v1.0 research
+artifacts. Verify exact final bytes, compile the submission sources in a clean
+environment, and inspect the resulting PDF before adding public download links.
+A preview PDF does not establish that a TeX source package compiles. Maintain
+historical drafts privately and preserve measured values and evidence provenance.
 
 ## Research scope
 
@@ -49,7 +59,7 @@ root. Inspect arXiv's processed PDF as well as the local build. See
 5. The author approves the concrete submission and completes the submission
    agreement. Add the real arXiv URL to the publication index only after it exists.
 
-Official guidance was checked on 2026-09-24; recheck it at submission time.
-The GitHub destination is [inlevel9-com/Jons](https://github.com/inlevel9-com/Jons)
-and the Hugging Face organization is [INLEVEL9](https://huggingface.co/INLEVEL9).
+Official guidance was checked on 2026-09-25; recheck it at submission time.
+The GitHub destination is [inlevel9-com/Vons](https://github.com/inlevel9-com/Vons)
+and the Hugging Face repository is [INLEVEL9/Vons](https://huggingface.co/INLEVEL9/Vons).
 Neither link establishes public artifact availability, replication or acceptance.

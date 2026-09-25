@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -108,9 +109,13 @@ def dataset_manifest(path: str | Path, examples: Iterable[Example]) -> dict[str,
     counts: dict[str, int] = {}
     for row in rows:
         counts[row.split] = counts.get(row.split, 0) + 1
+    labels = Counter(row.label for row in rows if row.label is not None)
     return {
         "path": str(path), "sha256": hashlib.sha256(encoded).hexdigest(), "rows": len(rows),
-        "splits": counts, "task_groups": sorted({row.task_group for row in rows}),
+        "splits": counts,
+        "labels": dict(sorted(labels.items())),
+        "unanswerable_rows": sum(not row.answerable for row in rows),
+        "task_groups": sorted({row.task_group for row in rows}),
     }
 
 
@@ -130,21 +135,91 @@ def synthetic_examples(count: int, *, seed: int = 7) -> list[Example]:
         raise ValueError("count must be positive")
     rng = random.Random(seed)
     examples: list[Example] = []
-    options = ("call_tool", "clarify", "refuse", "respond_directly")
+    actions = ("call_tool", "clarify", "refuse", "respond_directly")
+    templates = {
+        "call_tool": (
+            (
+                "A registered read-only tool exactly matches the request, every required parameter is "
+                "present, and policy permits the call."
+            ),
+            "exact_safe_tool_match",
+            "low",
+        ),
+        "clarify": (
+            (
+                "The request has two plausible interpretations and the required target parameter is "
+                "missing, so choosing a tool or direct answer would guess."
+            ),
+            "ambiguous_or_missing_parameter",
+            "low",
+        ),
+        "refuse": (
+            (
+                "The request asks to expose credentials or bypass authorization, and the explicit safety "
+                "rule prohibits that action."
+            ),
+            "prohibited_or_unauthorized_request",
+            "high",
+        ),
+        "respond_directly": (
+            (
+                "The verified answer is already present in the supplied state, no external information is "
+                "needed, and no tool should be called."
+            ),
+            "answer_available_without_tool",
+            "low",
+        ),
+    }
+    label_index = 0
     for index in range(count):
         scenario_id = f"synthetic-{index:06d}"
-        answerable = index % 11 != 0
+        # Preserve an answerability signal without letting missing-label rows
+        # distort the four-class distribution among answerable examples.
+        answerable = index % 13 != 0
         if answerable:
-            reason = rng.choice(("the requested data is available", "all required fields are present", "the current state is sufficient"))
-            state = f"{reason.capitalize()}; the user request is routine."
+            label = actions[label_index % len(actions)]
+            label_index += 1
+            rule_text, rule, risk = templates[label]
+            context = rng.choice(
+                (
+                    "The host must choose the next action.",
+                    "Only the explicit decision rule may be used.",
+                    "Tool execution remains controlled by the host.",
+                )
+            )
+            state = f"Rule: {rule_text} Context: {context}"
             question = rng.choice(("Which action should the agent take next?", "Choose the best next action.", "What should happen now?"))
-            label = "call_tool"
         else:
-            state = "The state omits a required value and the candidate actions conflict."
+            state = (
+                "The supplied state is internally inconsistent and omits the evidence needed to decide "
+                "whether any candidate is safe. The correct behavior is to abstain rather than invent a label."
+            )
             question = "What should the agent do next?"
             label = None
+            rule = "insufficient_or_conflicting_state"
+            risk = "unknown"
+        shuffled_options = list(actions)
+        rng.shuffle(shuffled_options)
         split = "train" if index % 10 < 7 else "development" if index % 10 < 8 else "calibration" if index % 10 < 9 else "test"
-        examples.append(Example(f"{scenario_id}-v0", "next_action", state, question, options, label, answerable, split, {"kind": "synthetic_rule", "generator": "vons.data.synthetic_examples", "seed": seed}, {"scenario_id": scenario_id, "risk": "low"}))
+        examples.append(
+            Example(
+                f"{scenario_id}-v1",
+                "next_action",
+                state,
+                question,
+                tuple(shuffled_options),
+                label,
+                answerable,
+                split,
+                {
+                    "kind": "synthetic_rule",
+                    "generator": "vons.data.synthetic_examples",
+                    "generator_version": 1,
+                    "rule": rule,
+                    "seed": seed,
+                },
+                {"scenario_id": scenario_id, "risk": risk},
+            )
+        )
     validate_examples(examples)
     return examples
-

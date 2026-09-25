@@ -41,6 +41,8 @@
 /configs/*
 !/configs/pilot.json
 !/configs/pilot-diffusion.json
+!/configs/pilot-v2-direct.json
+!/configs/pilot-v2-diffusion.json
 !/configs/public-release.json
 /sdk/*
 !/sdk/typescript/

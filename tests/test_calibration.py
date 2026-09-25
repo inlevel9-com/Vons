@@ -9,11 +9,14 @@ from vons.calibration import (
     ABSTAIN_ALL_THRESHOLD,
     CALIBRATION_VERSION,
     apply_calibration,
+    apply_vector_calibration,
     calibrate_report,
     fit_abstention_threshold,
     fit_abstention_threshold_details,
+    fit_brier_abstention_threshold_details,
     fit_temperature,
     fit_temperature_details,
+    fit_vector_scaling_details,
 )
 from vons.data import Example, write_jsonl
 from vons.evaluation import METRIC_VERSION, Prediction, nll, summarize, write_report
@@ -46,21 +49,97 @@ class CalibrationTests(unittest.TestCase):
         details = fit_temperature_details(examples, predictions)
         calibrated = apply_calibration(examples, predictions, temperature=details.temperature, abstention_threshold=0.0)
 
-        self.assertAlmostEqual(details.temperature, math.log(1.5) / math.log(3.0), places=6)
+        self.assertGreater(details.temperature, details.lower)
+        self.assertLess(details.temperature, details.upper)
         self.assertEqual(details.rows, 4)
         self.assertFalse(details.at_lower_bound)
         self.assertFalse(details.at_upper_bound)
         self.assertEqual(fit_temperature(examples, predictions), details.temperature)
         self.assertLess(nll(examples, calibrated), nll(examples, predictions))
 
-    def test_temperature_bound_hit_is_flagged(self) -> None:
+    def test_temperature_regularization_prevents_boundary_locking(self) -> None:
         examples = [_example(f"s{index}", "a", True) for index in range(4)]
         predictions = [Prediction(f"s{index}", "a", {"a": 0.9, "b": 0.1}, 0.9, False) for index in range(4)]
 
         details = fit_temperature_details(examples, predictions)
 
-        self.assertTrue(details.at_lower_bound)
-        self.assertAlmostEqual(details.temperature, 0.05)
+        self.assertFalse(details.at_lower_bound)
+        self.assertFalse(details.at_upper_bound)
+        self.assertGreater(details.temperature, 0.1)
+        self.assertLess(details.temperature, 10.0)
+
+        unregularized = fit_temperature_details(
+            examples, predictions, log_temperature_l2=0.0
+        )
+        self.assertTrue(unregularized.at_lower_bound)
+        self.assertAlmostEqual(unregularized.temperature, 0.1)
+
+    def test_vector_scaling_fits_all_classes_inside_bounds(self) -> None:
+        options = ("a", "b", "c", "d")
+        examples = []
+        predictions = []
+        for index, label in enumerate(options * 5):
+            examples.append(
+                Example(
+                    str(index),
+                    "calibration",
+                    "state",
+                    "choose",
+                    options,
+                    label,
+                    True,
+                    "calibration",
+                    {},
+                    {"scenario_id": str(index)},
+                )
+            )
+            probabilities = {option: 0.1 for option in options}
+            probabilities[label] = 0.7
+            predictions.append(
+                Prediction(str(index), label, probabilities, 0.7, False)
+            )
+
+        details = fit_vector_scaling_details(examples, predictions)
+        calibrated = apply_vector_calibration(
+            examples,
+            predictions,
+            temperatures=details.temperatures,
+            biases=details.biases,
+            abstention_threshold=0.0,
+        )
+
+        self.assertEqual(set(details.temperatures), set(options))
+        self.assertTrue(all(0.1 < value < 10.0 for value in details.temperatures.values()))
+        self.assertFalse(details.at_lower_bound)
+        self.assertFalse(details.at_upper_bound)
+        self.assertLess(details.nll_after, details.nll_before)
+        self.assertLess(nll(examples, calibrated), nll(examples, predictions))
+
+    def test_brier_threshold_is_fitted_from_calibrated_losses(self) -> None:
+        examples = [
+            _example("strong", "a", True),
+            _example("weak", "b", True),
+            _example("wrong", "b", True),
+        ]
+        predictions = [
+            Prediction("strong", "a", {"a": 0.95, "b": 0.05}, 0.95, False),
+            Prediction("weak", "b", {"a": 0.4, "b": 0.6}, 0.6, False),
+            Prediction("wrong", "a", {"a": 0.9, "b": 0.1}, 0.9, False),
+        ]
+        parameters = {"a": 1.0, "b": 1.0}
+
+        details = fit_brier_abstention_threshold_details(
+            examples,
+            predictions,
+            temperatures=parameters,
+            biases={"a": 0.0, "b": 0.0},
+            target_brier=0.25,
+        )
+
+        self.assertFalse(details.abstain_all)
+        self.assertEqual(details.target_brier, 0.25)
+        self.assertLessEqual(details.covered_brier, details.target_brier)
+        self.assertGreater(details.threshold, 0.0)
 
     def test_temperature_scaling_preserves_true_zero_support(self) -> None:
         examples = [_example("zero", "a", True)]
@@ -212,15 +291,20 @@ class CalibrationTests(unittest.TestCase):
                 "test_report": test_report,
             }
 
-            calibrate_report(**arguments, output=output, target_risk=0.0)
+            calibrate_report(**arguments, output=output, target_brier=0.2)
             payload = json.loads(output.read_text(encoding="utf-8"), parse_constant=_reject_constant)
 
             fit = payload["calibration"]
             self.assertEqual(fit["version"], CALIBRATION_VERSION)
             self.assertEqual(fit["answerability_threshold"], 0.8)
             self.assertEqual((fit["temperature_fit_rows"], fit["threshold_fit_rows"], fit["rows"]), (2, 3, 3))
-            self.assertTrue(fit["temperature_at_lower_bound"])
+            self.assertEqual(fit["calibration_method"], "vector_scaling")
+            self.assertEqual(set(fit["temperatures"]), {"a", "b"})
+            self.assertEqual(set(fit["biases"]), {"a", "b"})
+            self.assertFalse(fit["temperature_at_lower_bound"])
+            self.assertEqual(fit["target_brier"], 0.2)
             self.assertLessEqual(fit["nll_after"], fit["nll_before"])
+            self.assertLessEqual(fit["brier_after"], fit["brier_before"])
             self.assertEqual(payload["inputs"]["test_report"]["sha256"], hashlib.sha256(test_report.read_bytes()).hexdigest())
             self.assertEqual(payload["model_identity"]["model_id"], "vons-test")
             self.assertTrue(any("checkpoint_sha256 unavailable" in item for item in payload["limitations"]))

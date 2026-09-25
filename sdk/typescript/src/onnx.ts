@@ -325,9 +325,20 @@ export function tokenizeCandidates(
   state: DecisionRequest["state"],
   question: Question,
   options: readonly string[],
-  sequenceLength: number,
-): TokenizedCandidate[] {
-  return options.map((option) => encodeCandidate(tokenizer, candidateText(state, question, option), sequenceLength));
+  sequenceBudget: number,
+): { candidates: TokenizedCandidate[]; liveSequenceLength: number } {
+  if (!Number.isInteger(sequenceBudget) || sequenceBudget < 1 || sequenceBudget > 512) {
+    throw new RangeError("sequenceBudget must be an integer in [1, 512]");
+  }
+  const candidates = options.map((option) => encodeCandidate(tokenizer, candidateText(state, question, option), sequenceBudget));
+  let longest = 0;
+  for (const candidate of candidates) {
+    const length = candidate.inputIds.length;
+    if (length > longest) longest = length;
+  }
+  if (longest < 1) throw new Error("each tokenized candidate must contain at least one token");
+  const liveSequenceLength = Math.min(longest, sequenceBudget);
+  return { candidates, liveSequenceLength };
 }
 
 function padCandidates(candidates: readonly TokenizedCandidate[], slots: number, sequenceLength: number, paddingId: number): {
@@ -499,6 +510,7 @@ export class OnnxWebBackend implements DecisionBackend {
     if (this.disposed) throw new Error("ONNX Runtime session has been disposed");
     validateRequest(request);
     const answers: QuestionAnswer[] = [];
+    const sequenceBudget = this.sequenceLength;
     for (const [questionIndex, question] of request.questions.entries()) {
       const requestStarted = performance.now();
       if (question.type === "score") {
@@ -510,18 +522,18 @@ export class OnnxWebBackend implements DecisionBackend {
         throw new RangeError(`question ${question.id} has unsupported candidate count`);
       }
       const aggregateTokenCount = this.tokenizer.encode(candidateListText(request.state, question, options)).ids.length;
-      if (aggregateTokenCount > this.sequenceLength) {
-        throw new RangeError(`question ${question.id} exceeds the ${this.sequenceLength}-token aggregate input budget (tokens=${aggregateTokenCount})`);
+      if (aggregateTokenCount > sequenceBudget) {
+        throw new RangeError(`question ${question.id} exceeds the ${sequenceBudget}-token aggregate input budget (tokens=${aggregateTokenCount})`);
       }
       const tokenizeStarted = performance.now();
-      const encoded = tokenizeCandidates(this.tokenizer, request.state, question, options, this.sequenceLength);
+      const { candidates: encoded, liveSequenceLength } = tokenizeCandidates(this.tokenizer, request.state, question, options, sequenceBudget);
       const tokenized = performance.now();
-      const padded = padCandidates(encoded, slots, this.sequenceLength, this.paddingId);
+      const padded = padCandidates(encoded, slots, liveSequenceLength, this.paddingId);
       let traceNoise: Float32Array | null = null;
       const feeds: Record<string, unknown> = {
-        input_ids: tensor(this.runtime, "int64", padded.inputIds, [1, slots, this.sequenceLength]),
-        attention_mask: tensor(this.runtime, "int64", padded.attentionMask, [1, slots, this.sequenceLength]),
-        token_type_ids: tensor(this.runtime, "int64", padded.tokenTypeIds, [1, slots, this.sequenceLength]),
+        input_ids: tensor(this.runtime, "int64", padded.inputIds, [1, slots, liveSequenceLength]),
+        attention_mask: tensor(this.runtime, "int64", padded.attentionMask, [1, slots, liveSequenceLength]),
+        token_type_ids: tensor(this.runtime, "int64", padded.tokenTypeIds, [1, slots, liveSequenceLength]),
         option_mask: tensor(this.runtime, "bool", padded.optionMask, [1, slots]),
       };
       if (this.backend === "diffusion") {
@@ -570,7 +582,7 @@ export class OnnxWebBackend implements DecisionBackend {
         live_candidates: encoded.length,
         allocated_candidates: slots,
         live_tokens: encoded.reduce((total, candidate) => total + candidate.inputIds.length, 0),
-        sequence_length: this.sequenceLength,
+        sequence_length: liveSequenceLength,
         tokenizeMs: tokenized - tokenizeStarted,
         prepareFeedMs: inferenceStarted - tokenized,
         inferenceAndReadbackMs: readbackCompleted - inferenceStarted,

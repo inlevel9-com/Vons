@@ -21,12 +21,13 @@ def _parser() -> argparse.ArgumentParser:
     command = sub.add_parser("generate-smoke"); command.add_argument("--output", required=True)
     command = sub.add_parser("generate-synthetic"); command.add_argument("--count", type=int, default=2000); command.add_argument("--seed", type=int, default=7); command.add_argument("--output", required=True)
     command = sub.add_parser("validate-data"); command.add_argument("--input", required=True); command.add_argument("--manifest")
+    command = sub.add_parser("split-data"); command.add_argument("--input", required=True); command.add_argument("--split", choices=["train", "development", "calibration", "test", "smoke"], required=True); command.add_argument("--output", required=True)
     command = sub.add_parser("ollama-check"); command.add_argument("--models", nargs="+", required=True); command.add_argument("--host", default="http://127.0.0.1:11434"); command.add_argument("--output")
     command = sub.add_parser("ollama-benchmark"); command.add_argument("--model", required=True); command.add_argument("--input", required=True); command.add_argument("--role", default="judge"); command.add_argument("--limit", type=int, default=200); command.add_argument("--seed", type=int, default=7); command.add_argument("--host", default="http://127.0.0.1:11434"); command.add_argument("--output", required=True)
     command = sub.add_parser("build-research-packet"); command.add_argument("--results", required=True); command.add_argument("--output", required=True)
     command = sub.add_parser("build-bundle-manifest"); command.add_argument("--onnx", required=True); command.add_argument("--tokenizer", required=True); command.add_argument("--output", required=True); command.add_argument("--checkpoint"); command.add_argument("--model-manifest"); command.add_argument("--calibration", action="append", default=[]); command.add_argument("--runtime-asset", action="append", default=[]); command.add_argument("--license", action="append", default=[]); command.add_argument("--config", action="append", default=[]); command.add_argument("--source-root"); command.add_argument("--source-file", action="append", default=[])
     command = sub.add_parser("verify-bundle-manifest"); command.add_argument("--manifest", required=True)
-    command = sub.add_parser("calibrate"); command.add_argument("--calibration-input", required=True); command.add_argument("--calibration-report", required=True); command.add_argument("--test-input", required=True); command.add_argument("--test-report", required=True); command.add_argument("--output", required=True); command.add_argument("--target-risk", type=float, default=0.05)
+    command = sub.add_parser("calibrate"); command.add_argument("--calibration-input", required=True); command.add_argument("--calibration-report", required=True); command.add_argument("--test-input", required=True); command.add_argument("--test-report", required=True); command.add_argument("--output", required=True); command.add_argument("--target-brier", type=float); command.add_argument("--target-risk", type=float)
     for name in ("train", "evaluate", "export", "export-bundle", "export-diffusion-bundle"):
         command = sub.add_parser(name); command.add_argument("--config"); command.add_argument("--model"); command.add_argument("--input"); command.add_argument("--checkpoint"); command.add_argument("--output")
     return parser
@@ -43,6 +44,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.manifest:
             Path(args.manifest).parent.mkdir(parents=True, exist_ok=True); Path(args.manifest).write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
         print(json.dumps(manifest, indent=2, sort_keys=True)); return 0
+    if args.command == "split-data":
+        rows = [row for row in read_jsonl(args.input) if row.split == args.split]
+        if not rows:
+            raise SystemExit(f"input has no {args.split!r} rows")
+        write_jsonl(args.output, rows)
+        print(json.dumps({"output": args.output, "rows": len(rows), "split": args.split}, indent=2)); return 0
     if args.command == "ollama-check":
         client, payload = OllamaClient(args.host), {"host": args.host, "platform": platform.platform(), "models": []}
         for model in args.models:
@@ -85,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
             test_report=args.test_report,
             output=args.output,
             target_risk=args.target_risk,
+            target_brier=args.target_brier,
         )
         print(json.dumps({"report": str(output)}, indent=2)); return 0
     if args.command == "train":

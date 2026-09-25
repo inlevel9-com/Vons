@@ -1,8 +1,9 @@
 """Generate real, separate k-specific Mind2Web selections without reading labels.
 
-Strict 512-token question budget: overflow is an observed error, never silently
-truncated. Outputs stay local because candidate text comes from restricted data.
-The lexical baseline bypasses Vons' input contract and is labeled accordingly.
+The v1 context adapter applies label-free DOM/history compression and validates
+the exact runtime token count before inference. Outputs stay local because
+candidate text comes from restricted data. The lexical baseline bypasses Vons'
+input contract and is labeled accordingly.
 """
 
 from __future__ import annotations
@@ -16,8 +17,16 @@ import re
 import time
 from collections import Counter
 from collections.abc import Callable
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
+
+from vons.mind2web_adapter import (
+    MAX_CANDIDATE_TOKENS,
+    MAX_HISTORY_ACTIONS,
+    MAX_PROMPT_TOKENS,
+    compress_request,
+)
 
 QUESTION = "Which element should the agent interact with next to achieve the goal?"
 KS = (5, 10, 20, 32)
@@ -66,7 +75,7 @@ def make_request(row: dict[str, Any], k: int) -> dict[str, Any]:
 
 
 def decode(scores: list[float], answerability_logit: float,
-           ids: list[str], threshold: float = 0.55) -> dict[str, Any]:
+           ids: list[str], threshold: float | None = None) -> dict[str, Any]:
     if len(scores) != len(ids) or not ids or not all(math.isfinite(x) for x in scores):
         raise ModelOutputError("model returned invalid scores")
     if not math.isfinite(answerability_logit):
@@ -79,11 +88,15 @@ def decode(scores: list[float], answerability_logit: float,
     answerability = 1 / (1 + z) if answerability_logit >= 0 else z / (1 + z)
     index = max(range(len(ids)), key=probabilities.__getitem__)
     confidence = probabilities[index] * answerability
+    resolved_threshold = 0.55 / len(ids) if threshold is None else float(threshold)
+    if not math.isfinite(resolved_threshold) or not 0.0 <= resolved_threshold <= 1.0:
+        raise ValueError("threshold must be finite and in [0, 1]")
     reason = ("answerability_below_threshold" if answerability < 0.5 else
-              "confidence_below_threshold" if confidence < threshold else None)
+              "confidence_below_threshold" if confidence < resolved_threshold else None)
     return {"selection": ids[index] if reason is None else None,
             "status": "ok" if reason is None else "abstain", "reason": reason,
             "probabilities": dict(zip(ids, probabilities)), "confidence": confidence,
+            "abstention_threshold": resolved_threshold,
             "answerability": answerability, "raw_scores": scores,
             "answerability_logit": answerability_logit}
 
@@ -116,25 +129,29 @@ class DirectSelector:
         self.provenance = {"backend": "direct", "model_manifest_sha256": expected_digest,
                            "tokenizer_sha256": file_hash(manifest.parent / "tokenizer/tokenizer.json"),
                            "ort_version": ort.__version__, "provider": "CPUExecutionProvider",
-                           "calibration": "none; historical default thresholds 0.55/0.5",
+                           "calibration": "none; candidate-normalized 0.55/k confidence and 0.5 answerability",
                            "threads": 1, "sequence_padding": "longest candidate input",
-                           "candidate_padding": "live", "input_budget_tokens": 512}
+                           "candidate_padding": "live", "input_budget_tokens": MAX_PROMPT_TOKENS,
+                           "context_adapter": "vons.mind2web-context/v1", "adapted": True,
+                           "max_candidate_tokens": MAX_CANDIDATE_TOKENS,
+                           "history_window": MAX_HISTORY_ACTIONS}
 
     def __call__(self, request: dict[str, Any]) -> dict[str, Any]:
         np = self.np
-        candidates = request["candidates"]
+        inference_request, compression = compress_request(request, self.tokenizer)
+        candidates = inference_request["candidates"]
         if not 2 <= len(candidates) <= 32:
             raise ValueError("candidate_count_outside_2_32")
-        prefix = f'{request["state"]}\nQuestion: {request["question"]}'
+        prefix = f'{inference_request["state"]}\nQuestion: {inference_request["question"]}'
         all_text = prefix + "\nCandidates:\n" + "\n".join(item["text"] for item in candidates)
         token_count = len(self.tokenizer.encode(all_text).ids)
-        if token_count > 512:
+        if token_count > MAX_PROMPT_TOKENS:
             return {"selection": None, "status": "error", "reason": "input_overflow",
                     "question_tokens": token_count}
         encoded = [self.tokenizer.encode(prefix + "\nCandidate: " + item["text"])
                    for item in candidates]
         length = max(len(item.ids) for item in encoded)
-        if length > 512:
+        if length > MAX_PROMPT_TOKENS:
             return {"selection": None, "status": "error", "reason": "candidate_input_overflow",
                     "question_tokens": token_count}
         ids = np.full((1, len(candidates), length), self.tokenizer.token_to_id("[PAD]"), dtype=np.int64)
@@ -153,6 +170,8 @@ class DirectSelector:
         result = decode(scores[0].tolist(), float(answerability[0]),
                         [item["id"] for item in candidates])
         result.update(question_tokens=token_count,
+                      compression=asdict(compression),
+                      inference_request_sha256=object_hash(inference_request),
                       input_array_sha256=object_hash({key: value.tolist() for key, value in feed.items()}))
         return result
 
@@ -167,8 +186,10 @@ def predict_file(source: Path, output: Path, *, split: str, k: int,
     seen: set[str] = set()
     counts: Counter[str] = Counter()
     source_digest = file_hash(source)
-    config = {"split": split, "k": k, "provenance": provenance, "adapted": False,
-              "question": QUESTION, "input_overflow": "preserve error; no truncation"}
+    config = {"split": split, "k": k, "provenance": provenance,
+              "adapted": bool(provenance.get("adapted", False)),
+              "question": QUESTION,
+              "input_overflow": "exact tokenizer hard cap at 512 after label-free compression"}
     config_digest = object_hash(config)
     with source.open() as handle, partial.open("x") as destination:
         for line in handle:

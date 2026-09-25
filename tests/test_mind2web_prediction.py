@@ -35,6 +35,7 @@ def test_exact_k_and_label_free_contract():
 def test_decode_abstention_finite_and_ids():
     result = module.decode([0, 10], 10, ["first", "second"])
     assert result["selection"] == "second"
+    assert result["abstention_threshold"] == pytest.approx(0.55 / 2)
     assert sum(result["probabilities"].values()) == pytest.approx(1)
     assert module.decode([0, 10], -10, ["first", "second"])["selection"] is None
     with pytest.raises(ValueError, match="invalid scores"):

@@ -30,6 +30,7 @@ KS = (5, 10, 20, 32)
 CELLS = tuple((split, k) for split in SPLITS for k in KS)
 SOURCE_FILES = (
     "vons/mind2web.py",
+    "vons/mind2web_adapter.py",
     "tools/evaluate_mind2web.py",
     "tools/predict_mind2web.py",
     "tools/replay_mind2web_evaluation.py",

@@ -1,0 +1,28 @@
+{
+  "model_id": "vons-pilot-v2-diffusion",
+  "backend": "diffusion",
+  "option_count": 32,
+  "encoder": {
+    "name": "google/bert_uncased_L-4_H-256_A-4",
+    "revision": "387825ce42dbb39b87911cdf8e383ee3b25184f8",
+    "max_tokens": 512
+  },
+  "data": {
+    "path": "data/generated/pilot-v2.jsonl",
+    "manifest": "data/generated/pilot-v2.manifest.json"
+  },
+  "seed": 7,
+  "epochs": 12,
+  "batch_size": 32,
+  "learning_rate": 0.001,
+  "latent_size": 64,
+  "attention_heads": 4,
+  "diffusion_conditioning": "token_cross_attention",
+  "noise_schedule": "cosine",
+  "diffusion_steps": 64,
+  "inference_steps": 8,
+  "soft_target_smoothing": 0.1,
+  "device": "auto",
+  "artifact_dir": "artifacts/pilot-v2-diffusion",
+  "target_bundle_bytes": 67108864
+}

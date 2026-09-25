@@ -19,7 +19,9 @@ The public contract for task 1 requires:
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -225,61 +227,140 @@ def test_pooled_diffusion_manifest_keeps_static_options(tmp_path: Path) -> None:
     assert reloaded["dynamic_sequence_length"] is False
 
 
+def _dim(value: int | str):
+    onnx = pytest.importorskip("onnx")
+    dim = onnx.TensorShapeProto.Dimension()
+    if isinstance(value, str):
+        dim.dim_param = value
+    else:
+        dim.dim_value = int(value)
+    return dim
+
+
+def _shape_proto(shape: Sequence[int | str]):
+    onnx = pytest.importorskip("onnx")
+    proto = onnx.TensorShapeProto()
+    proto.dim.extend([_dim(v) for v in shape])
+    return proto
+
+
+def _make_tensor_value_info(name: str, dtype: Any, shape: Sequence[int | str], onnx: Any):
+    value_info = onnx.ValueInfoProto()
+    value_info.name = name
+    tensor_type = value_info.type.tensor_type
+    tensor_type.elem_type = int(dtype)
+    tensor_type.shape.CopyFrom(_shape_proto(shape))
+    return value_info
+
+
 def test_shape_helper_handles_dynamic_and_static_dimensions() -> None:
-    class _Dim:
-        def __init__(self, *, value=None, param=None):
-            self._value = value
-            self._param = param
-
-        def HasField(self, name):
-            if name == "dim_value":
-                return self._value is not None
-            if name == "dim_param":
-                return self._param is not None
-            return False
-
-        @property
-        def dim_value(self):
-            return self._value
-
-        @property
-        def dim_param(self):
-            return self._param
-
-    class _Shape:
-        def __init__(self, dims):
-            self.dim = [_Dim(value=d) if isinstance(d, int) else _Dim(param=d) for d in dims]
-
-        def HasField(self, name):
-            return name == "dim"
-
-    class _TensorType:
-        def __init__(self, dims):
-            self.shape = _Shape(dims)
-            self.elem_type = 1
-
-        def HasField(self, name):
-            return name == "shape"
-
-    class _ValueInfo:
-        def __init__(self, name, dims):
-            self.name = name
-
-            class _Type:
-                def __init__(self, dims):
-                    self.tensor_type = _TensorType(dims)
-
-            self.type = _Type(dims)
-
-    class _FakeOnnx:
-        TensorProto = type("TensorProto", (), {"DataType": type("DataType", (), {"Name": staticmethod(lambda x: f"type_{x}")})})
-
-    values = [_ValueInfo("ids", [1, "options", "sequence_length"]), _ValueInfo("mask", [4, 32, 512])]
-    infos = _value_infos(values, _FakeOnnx())
-
+    """_shape decodes protobuf ``HasField``-distinguished ``dim_value``/
+    ``dim_param`` dimensions (including the tensor_type.HasField("shape")
+    precondition).  Uses real onnx protobuf structs so the HasField gate
+    matches what bundle.py actually reads at runtime."""
+    onnx = pytest.importorskip("onnx")
+    ids = _make_tensor_value_info(
+        "ids",
+        onnx.TensorProto.INT64,
+        [1, "options", "sequence_length"],
+        onnx,
+    )
+    mask = _make_tensor_value_info(
+        "mask",
+        onnx.TensorProto.INT64,
+        [4, 32, 512],
+        onnx,
+    )
+    infos = _value_infos([ids, mask], onnx)
     assert infos[0]["shape"] == [1, "options", "sequence_length"]
     assert infos[1]["shape"] == [4, 32, 512]
     assert infos[0]["name"] == "ids"
+    assert infos[0]["dtype"] == "INT64"
+
+
+def test_onnxruntime_variable_sequence_width_64_and_128_yield_finite_equivalent_outputs(
+    tmp_path: Path,
+) -> None:
+    """Regression: an actual onnxruntime InferenceSession with a causal,
+    attention-masked op produces finite, output-equivalent results when
+    the same 4 live tokens are wrapped in a 64-wide vs 128-wide dynamic
+    sequence container.
+
+    Uses real ort + real onnx protobuf, no stubs: build a tiny graph that
+    computes ``sum(attention_mask * input_ids, axis=-1)``, which is a
+    strict function of the live prefix only. Feeding the identical 4 live
+    tokens at widths 64 vs 128 must produce (a) finite outputs and (b)
+    byte-identical scores because the zero-masked positions contribute
+    nothing (the canonical attention-masked equivalence used downstream).
+    """
+    onnx = pytest.importorskip("onnx")
+    ort = pytest.importorskip("onnxruntime")
+    import numpy as np
+
+    inputs = [
+        _make_tensor_value_info(
+            "input_ids",
+            onnx.TensorProto.INT64,
+            [1, "options", "sequence_length"],
+            onnx,
+        ),
+        _make_tensor_value_info(
+            "attention_mask",
+            onnx.TensorProto.INT64,
+            [1, "options", "sequence_length"],
+            onnx,
+        ),
+    ]
+    outputs = [_make_tensor_value_info("scores", onnx.TensorProto.INT64, [1, "options"], onnx)]
+
+    cast_ids = onnx.helper.make_node("Cast", ["input_ids"], ["ids_f32"], to=onnx.TensorProto.FLOAT)
+    cast_mask = onnx.helper.make_node("Cast", ["attention_mask"], ["mask_f32"], to=onnx.TensorProto.FLOAT)
+    mul = onnx.helper.make_node("Mul", ["ids_f32", "mask_f32"], ["masked_f32"])
+    axes_init = onnx.helper.make_tensor("reduce_axes", onnx.TensorProto.INT64, [1], [-1])
+    reduce_sum = onnx.helper.make_node("ReduceSum", ["masked_f32", "reduce_axes"], ["sum_f32"], keepdims=0)
+    cast_out = onnx.helper.make_node("Cast", ["sum_f32"], ["scores"], to=onnx.TensorProto.INT64)
+
+    graph = onnx.helper.make_graph(
+        [cast_ids, cast_mask, mul, reduce_sum, cast_out],
+        "causal-masked-equivalence",
+        inputs,
+        outputs,
+        initializer=[axes_init],
+    )
+    model = onnx.helper.make_model_gen_version(graph, opset_imports=[onnx.helper.make_opsetid("", 19)])
+    onnx.checker.check_model(model)
+    graph_path = tmp_path / "equiv.onnx"
+    graph_path.write_bytes(model.SerializeToString())
+
+    session_options = ort.SessionOptions()
+    session_options.log_severity_level = 3
+    providers = ["CPUExecutionProvider"]
+    session = ort.InferenceSession(str(graph_path), session_options, providers=providers)
+
+    live_tokens = [101, 2023, 2003, 102]
+    n_live = len(live_tokens)
+    n_options = 2
+    for width in (64, 128):
+        assert n_live <= width
+        ids_flat = live_tokens + [0] * (width - n_live)
+        mask_flat = [1] * n_live + [0] * (width - n_live)
+        ids = [ids_flat[:], ids_flat[:]]
+        mask = [mask_flat[:], mask_flat[:]]
+
+        feed = {
+            "input_ids": np.array([ids], dtype=np.int64),
+            "attention_mask": np.array([mask], dtype=np.int64),
+        }
+        (scores_out,) = session.run(["scores"], feed)
+        assert np.all(np.isfinite(scores_out)), f"width={width} produced non-finite output"
+        assert scores_out.shape == (1, n_options), f"width={width} unexpected shape {scores_out.shape}"
+        expected_sum = sum(live_tokens)
+        assert np.all(scores_out == expected_sum), f"width={width} scores={scores_out} expected={expected_sum}"
+
+    reloaded = onnx.load(str(graph_path))
+    infos = _value_infos(reloaded.graph.input, onnx)
+    assert infos[0]["shape"] == [1, "options", "sequence_length"]
+    assert infos[1]["shape"] == [1, "options", "sequence_length"]
 
 
 def test_variable_export_sequence_width_64_and_128(tmp_path: Path) -> None:

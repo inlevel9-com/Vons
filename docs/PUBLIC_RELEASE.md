@@ -8,7 +8,7 @@ tool independently rejects any Git candidate outside that exact file list.
 
 Included: Python and TypeScript source, tests, source demo files, the SDK
 dependency lockfile, pilot configuration, reviewed public documentation and the
-owner-supplied INLEVEL9 logo. Reviewed publications are listed separately in
+owner-supplied Vons and INLEVEL9 logos. Reviewed publications are listed separately in
 `docs/publications/README.md`.
 
 Excluded: all local datasets (including synthetic outputs), model weights,
@@ -32,8 +32,8 @@ Each export is a new directory containing only allowlisted files and a
 `RELEASE_MANIFEST.json` with byte counts and SHA-256 hashes. Existing output
 directories are never overwritten. Use a new versioned output path after any
 source change. The Hugging Face export substitutes its model card as the root
-README. Both exports contain source and the two exact reviewed publication PDFs, with
-no pretrained assets.
+README. Both exports contain source, the current v1.1 Paper and Tech Report and
+their two reviewed historical PDFs, with no pretrained assets.
 
 The audit detects known token/key patterns, personal home paths, private writing
 session URLs, unexpected Git files, symlinks and changed reviewed binaries.
@@ -62,18 +62,21 @@ those files; do not publish the historical inputs merely to remove that skip.
 ## Hugging Face
 
 Upload only a reviewed versioned Hugging Face export to `INLEVEL9/Vons`.
-The initial verified upload used `releases/huggingface-source-v8`; see the
+The initial verified upload used `releases/huggingface-source-v8`. The reviewed
+v1.1 update was published from `releases/huggingface-source-v13` as Hub commit
+[`a76a881628c03026a2d0fa0993da5904f13480e6`](https://huggingface.co/INLEVEL9/Vons/commit/a76a881628c03026a2d0fa0993da5904f13480e6); see the
 [step-by-step upload guide](HUB_PUBLISHING.md). Do not select the development workspace in the
 Hub upload dialog. Use explicit allow/ignore patterns if using `upload_folder`;
 its handling of ignore files depends on the client version and upload method.
 
 The current checkout also includes the [Chrome extension source](../sdk/typescript/extension/README.md),
-which was not part of that initial 97-file upload. Generate a fresh export for
-subsequent source releases. Generated extension packages remain local and
+which was not part of that initial 97-file upload but is included in the v1.1
+source update. Generated extension packages remain local and
 ignored; distribute only their reviewed contents, with dependency notices and
 without imported models or prompts. Chrome Web Store version 0.1.0 was submitted
-on 2026-09-25 and is pending review, with automatic publication after approval
-enabled. Submission does not establish store approval or public availability.
+on 2026-09-25, passed review and had its public listing independently read back
+the same day: [Vons — Local Decisions](https://chromewebstore.google.com/detail/vons-%E2%80%94-local-decisions/cbmjkokoojinfgafahncmjlfmicinide).
+That listing does not establish model quality or production readiness.
 
 This source preview has no weights and no inference widget. A later weight
 release needs its own exact file inventory, upstream notices, model/data

@@ -22,15 +22,21 @@ Runtime libraries, complete download size and memory use are distinct quantities
 ## Evaluation and limitations
 
 Historical local experiments include synthetic pilots and an evaluation-only
-external benchmark diagnostic. They do not establish general task quality,
-production readiness, calibrated safety or a Direct/Diffusion superiority claim.
-Reviewed numerical claims belong to the versioned
+external benchmark diagnostic. A separately labelled post-freeze v2 handoff
+records dynamic per-request padding, balanced four-class synthetic runs,
+vector-scaling calibration, a token-conditioned Diffusion head and label-free
+Mind2Web context compression. Those bounded synthetic, local-CPU and
+conditional-selection results do not establish general task quality, production
+readiness, calibrated safety or a Direct/Diffusion superiority claim. Reviewed
+numerical claims belong to the versioned
 [paper and Tech Report](publications/README.md), with exact evidence references.
 Unreviewed historical tables are not distributed as current results.
 
 The ONNX candidate head does not support general score questions. Python and
-TypeScript token-budget checks are not fully identical. Browser smoke, repeated
-latency, full numerical parity and memory evidence remain separate gates.
+TypeScript now both pad to the longest live tokenized candidate within the
+manifest budget, but their broader public contract semantics are not claimed to
+be identical. Browser smoke, local CPU timing, graph-partition parity and memory
+evidence remain separate checks.
 
 Do not use model confidence as a permission grant or assume it is calibrated.
 Vons cannot execute tools or approve high-risk actions.

@@ -11,6 +11,8 @@ tags:
   - onnx
 ---
 
+![Vons](../docs/assets/vons-logo.png)
+
 ![INLEVEL9](../docs/assets/inlevel9-signature.png)
 
 # Vons
@@ -57,16 +59,23 @@ an organization card, source preview and later a separately validated Space.
 
 | Publication | Download |
 | --- | --- |
-| Vons: A Compact, Host-Controlled Decision Component for Agent Workflows — paper v1.0, final editorial revision | [PDF · 15 pages](../docs/publications/vons-paper-v1.0.pdf) |
-| Vons: Compact Decision Models for Frontier-Agent Workflows — Technical Report v1.0.1 | [PDF · 20 pages](../docs/publications/vons-tech-report-v1.0.1.pdf) |
+| Vons: A Compact, Host-Controlled Decision Component for Agent Workflows — Preprint v1.1 | [PDF · 21 pages](../docs/publications/vons-paper-v1.1.pdf) |
+| Vons: Compact Decision Models for Frontier-Agent Workflows — Technical Report v1.1 | [PDF · 29 pages](../docs/publications/vons-tech-report-v1.1.pdf) |
 
 Articles and original figures use **CC BY 4.0**. Their version, SHA-256 digests
 and verification scope are in the [publication index](../docs/publications/README.md).
-These preprints preserve negative results and missing measurements. The paper
-was submitted to arXiv under **submission number 8127259**; the last checked
-status on **2026-09-25** is **on hold** (undergoing checks). This tracking number
-is not a public arXiv article identifier. No announcement or peer-review
-acceptance is claimed.
+These preprints preserve negative results, missing measurements and the boundary
+between frozen v1 evidence and the separately labelled post-freeze v2 handoff.
+The paper uses arXiv **submission number 8127259**. The v1.1 PDF and metadata
+were processed successfully on **2026-09-25** and submitted on **2026-09-26**.
+The arXiv account currently reports **on hold** for moderation. This tracking
+number is not a public arXiv article identifier. No public announcement or
+peer-review acceptance is claimed.
+
+Chrome Web Store version **0.1.0** passed review and is publicly available as
+[Vons — Local Decisions](https://chromewebstore.google.com/detail/vons-%E2%80%94-local-decisions/cbmjkokoojinfgafahncmjlfmicinide),
+verified on 2026-09-25. Store availability is not evidence of model quality,
+scientific validity or production readiness.
 
 ## Local use
 

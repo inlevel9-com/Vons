@@ -31,11 +31,12 @@ submission. Do not ZIP the workspace or your imported model folder.
 **Vons — Local Decisions**, version **0.1.0**, item ID
 `cbmjkokoojinfgafahncmjlfmicinide`, was submitted to the Chrome Web Store on
 **2026-09-25** after the owner approved the data-use declarations and final
-submission. The dashboard confirmed **Pending review**. The package, English
-listing, icon, two screenshots, privacy disclosures and reviewer instructions
-are included. Automatic publication after approval is enabled. Review submission
-is not store approval; no public installation URL is advertised yet. The local
-unpacked installation remains available above.
+submission. It subsequently passed review and the public listing was verified
+on **2026-09-25**:
+[install Vons — Local Decisions](https://chromewebstore.google.com/detail/vons-%E2%80%94-local-decisions/cbmjkokoojinfgafahncmjlfmicinide).
+The package, English listing, icon, two screenshots, privacy disclosures and
+reviewer instructions are included. The local unpacked installation remains
+available above.
 
 The store package contains runtime code and notices only. A compatible model
 must be supplied by the user; the public source repository does not distribute
@@ -79,7 +80,7 @@ WebAssembly compilation without permitting general JavaScript eval.
 ## Verification scope
 
 Source tests cover exact file integrity, missing assets, path escapes, candidate
-validation and unexpected extension permissions. On 2026-09-25, all 14 SDK tests,
+validation and unexpected extension permissions. On 2026-09-25, all 16 SDK tests,
 strict extension type checking and the extension build passed. Real Chrome
 testing of the generated interface over localhost verified Direct/WASM
 inference, explicit token-budget rejection, cancellation followed by reuse,
@@ -95,8 +96,9 @@ Diffusion ranking placed an unsuitable option first, reinforcing the need to
 preserve abstention and human review. The imported models remain unpublished.
 
 The installed-panel check exercises the packaged worker/WASM path under its
-extension CSP. WebGPU, broader provider parity, external-task quality, store
-approval and production readiness are not established by these checks.
+extension CSP. WebGPU, broader provider parity, external-task quality and
+production readiness are not established by these checks. Store review
+establishes listing-policy approval only, not scientific validity or safety.
 Preserve the model manifest hash with each result.
 
 Official references: [Side Panel API](https://developer.chrome.com/docs/extensions/reference/api/sidePanel),

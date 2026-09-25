@@ -31,9 +31,12 @@
 !/docs/publications/README.md
 !/docs/publications/LICENSE.md
 !/docs/publications/ARXIV.md
+!/docs/publications/vons-paper-v1.1.pdf
+!/docs/publications/vons-tech-report-v1.1.pdf
 /docs/assets/*
 !/docs/assets/inlevel9-signature.png
 !/docs/assets/inlevel9-signature-dark.png
+!/docs/assets/vons-logo.png
 !/docs/assets/vons-extension-icon-16.png
 !/docs/assets/vons-extension-icon-32.png
 !/docs/assets/vons-extension-icon-48.png
@@ -96,6 +99,8 @@ restricted/
 # Only the exact reviewed publication bytes are eligible for staging.
 !/docs/publications/vons-paper-v1.0.pdf
 !/docs/publications/vons-tech-report-v1.0.1.pdf
+!/docs/publications/vons-paper-v1.1.pdf
+!/docs/publications/vons-tech-report-v1.1.pdf
 
 # Credentials, machine-specific config, private prompts and service caches.
 .env

@@ -1,15 +1,19 @@
 # arXiv submission
 
-The [reviewed paper PDF](vons-paper-v1.0.pdf) is included in the source release,
-alongside the [Technical Report](vons-tech-report-v1.0.1.pdf). The paper was
-submitted under **submission number 8127259**. The account page confirmed
-**Article submitted**; the last checked status on **2026-09-25** is **on hold**.
-This is a submission tracking number, not a public arXiv article identifier.
-No public article URL or acceptance is announced. arXiv performs
-content moderation, not journal peer review; see its
+The [reviewed v1.1 paper PDF](vons-paper-v1.1.pdf) is included in the source
+release, alongside the [v1.1 Technical Report](vons-tech-report-v1.1.pdf). The
+paper uses **submission number 8127259**. On **2026-09-25**, the v1.1 PDF replaced
+the prior v1.0 file, arXiv reported **Submission processed OK**, and the title,
+author, abstract, comments, categories and CC BY 4.0 selection were reviewed.
+After the processed PDF was opened and explicitly approved, the article was
+submitted on **2026-09-26**. The account first reported **Article submitted**
+with status **processing**, then changed to **on hold** for moderation. This is
+a submission tracking number, not a public arXiv article identifier. No public
+article URL or acceptance is announced. arXiv performs content moderation, not
+journal peer review; see its
 [moderation policy](https://info.arxiv.org/help/moderation/index.html).
 
-## Submitted artifact
+## Submitted replacement artifact
 
 | Field | Submitted value |
 | --- | --- |
@@ -18,22 +22,25 @@ content moderation, not journal peer review; see its
 | Author | Kwangseob Ahn (INLEVEL9 / SEJONG UNIV.) |
 | Category | cs.AI |
 | License | CC BY 4.0 |
-| PDF | `vons-paper-v1.0.pdf`, 15 pages |
-| SHA-256 | `ae0e09c60e17a98b52bb25c611b2489d10b18bd98d87974f2e8dd25d746a5fc8` |
+| PDF | `vons-paper-v1.1.pdf`, 21 pages |
+| SHA-256 | `8e9ff7d768979411db2333f37111692b5b8426bdaec21d35954c7038d047f321` |
+| Current account status | `on hold`, awaiting arXiv moderation |
 
-arXiv reported **Submission processed OK**. The author confirmed the processed
-PDF and metadata before approving final submission. The submitted abstract is
-an abridged version preserving the manuscript's findings and limitations.
-Journal reference and DOI are blank. The Tech Report is available alongside
-the paper in this repository; it was not submitted as a second arXiv paper.
+The submitted abstract is an abridged version preserving the frozen negative
+results, separately labelled post-freeze remediation results and manuscript
+limitations. Comments record 21 pages, 2 figures and the public Hugging Face
+source/Tech Report location. Journal reference and DOI remain blank. The Tech
+Report is available alongside the paper in this repository; it is not prepared
+as a second arXiv paper.
 
-According to the [official status guidance](https://info.arxiv.org/help/submit_status.html#on-hold),
-on-hold submissions undergo checks and may require no action. Follow any
-instructions sent by arXiv; do not create a duplicate submission. Add a public
-article link only after arXiv assigns and announces one.
+The prior v1.0 package reached on-hold status before this replacement was
+prepared. The submitted v1.1 replacement is now on hold under the same
+submission number. Follow any instructions sent by arXiv and do not create a
+duplicate submission. Add a public article link only after arXiv assigns and
+announces one.
 
-Exact local PDF hashes match the reviewed final manuscripts, and all 35 pages
-have been inspected. The documents were generated with Typst, not TeX/LaTeX.
+Exact local PDF hashes match the reviewed final manuscripts, and all 50 v1.1
+pages have been inspected. The documents were generated with Typst, not TeX/LaTeX.
 The paper used the genuine non-TeX PDF submission route. An independent source rebuild remains
 unverified; see the [publication index](README.md) for exact verification scope.
 Historical drafts and claim-to-source records remain private.

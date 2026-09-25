@@ -1,9 +1,10 @@
 # Upload the Vons source preview to Hugging Face
 
-This guide covers the completed upload and future owner-operated updates. The
-initial upload contains 97 reviewed files, including the final paper and Tech Report PDFs. Drafts,
-source manuscript bundles, model weights, restricted data and private records
-are excluded.
+This guide covers the completed initial upload and subsequent reviewed updates.
+The current v1.1 snapshot contains 128 reviewed files, including the source,
+extension source, Vons logo, current Paper and Tech Report PDFs and their
+historical reviewed versions. Drafts, source manuscript bundles, model weights,
+restricted data and private records are excluded.
 
 ## Destination and scope
 
@@ -19,6 +20,15 @@ contains all 97 reviewed files. The Hub generated two PDF LFS tracking lines in
 public model card now uses the Vons Community and Commercial License 1.0.
 The article CC BY 4.0 terms are separate. A later documentation update records
 the arXiv submission status without adding models or draft material.
+
+The reviewed v1.1 update uses the local snapshot
+`releases/huggingface-source-v13` and was published in Hub commit
+[`a76a881628c03026a2d0fa0993da5904f13480e6`](https://huggingface.co/INLEVEL9/Vons/commit/a76a881628c03026a2d0fa0993da5904f13480e6).
+It adds the 21-page Preprint v1.1, the 29-page
+Technical Report v1.1, post-freeze implementation source and tests, Chrome
+extension source and the owner-supplied Vons logo. It does not add manuscript
+source bundles, claim ledgers, model weights, tokenizer assets or benchmark
+data.
 
 A commit to this public repository makes uploaded files publicly readable.
 Uploading source does not create hosted inference, pretrained weights or a
@@ -57,10 +67,13 @@ Run the source audit from the Vons checkout:
 python3 tools/prepare_public_release.py
 ```
 
-The initial uploaded snapshot is `releases/huggingface-source-v8`.
-It contains the 97 reviewed files plus a local `RELEASE_MANIFEST.json` receipt
-with every file's byte count and SHA-256 digest. Its root README is the Hub model
-card; the working-tree README remains the GitHub landing page.
+The initial uploaded snapshot is `releases/huggingface-source-v8`. The reviewed
+v1.1 artifact snapshot is `releases/huggingface-source-v13`; it contains 128 reviewed
+files plus a local `RELEASE_MANIFEST.json` receipt with every file's byte count
+and SHA-256 digest. Its root README is the Hub model card; the working-tree
+README remains the GitHub landing page. Live read-back confirmed a public,
+ungated repository at commit `a76a881628c03026a2d0fa0993da5904f13480e6`,
+with exact hashes for the two v1.1 PDFs and Vons logo.
 
 This export is a snapshot. If you edit any public source or documentation after
 preparation, create a fresh versioned directory and use that path below:
@@ -105,19 +118,19 @@ Open [the model card](https://huggingface.co/INLEVEL9/Vons) and
   It must no longer identify the software as Apache-2.0 or CC BY 4.0.
 - Root `LICENSE` and `sdk/typescript/LICENSE` contain the same custom terms.
 - Source paths such as `vons/`, `tools/`, `tests/` and `sdk/typescript/` are present.
-- The Paper and Tech Report links open the 15-page paper and 20-page report.
+- The Paper and Tech Report links open the 21-page v1.1 paper and 29-page v1.1 report.
   Their digests match the publication index. No manuscript source bundle or
   private review material is uploaded.
-- Logo/documentation links resolve, and a signed-out visitor can read the card.
+- The Vons and INLEVEL9 logo links resolve, and a signed-out visitor can read the card.
 
 Save the resulting Hub commit URL with the local release manifest. GitHub
 publication, manuscript publication and a hosted demo are separate actions.
 For subsequent source changes, create a new reviewed export and repeat the same
 upload command with its new path. Add research files only after their separate
-v1.0 review and an explicit public-allowlist update.
+review and an explicit public-allowlist update.
 
 The initial Hub upload and publication-document update were owner-authorized.
-GitHub commits, pushes and visibility changes remain owner-operated. Local
-Chrome extension source and packages are prepared separately; the initial
-97-file Hub upload does not include the extension.
+GitHub commits, pushes and visibility changes remain owner-operated. The v1.1
+Hub source update includes reviewed extension source, but generated extension
+packages and imported local models remain excluded.
 Official CLI/upload guidance checked 2026-09-25.

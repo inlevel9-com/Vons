@@ -1,10 +1,12 @@
 <p align="center">
+  <img src="docs/assets/vons-logo.png" alt="Vons" width="505">
+</p>
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/inlevel9-signature-dark.png">
     <img src="docs/assets/inlevel9-signature.png" alt="INLEVEL9" width="320">
   </picture>
 </p>
-<h1 align="center">Vons</h1>
 <p align="center">
   <img src="https://img.shields.io/badge/version-0.1.0--preview-c5ff7a?style=flat-square&amp;labelColor=252525" alt="Version 0.1.0 preview">
   <img src="https://img.shields.io/badge/status-research_preview-8e9aaf?style=flat-square&amp;labelColor=252525" alt="Research preview">
@@ -18,8 +20,8 @@
   <a href="sdk/typescript/README.md">TypeScript SDK</a> ·
   <a href="sdk/typescript/extension/README.md">Chrome Extension</a> ·
   <a href="docs/MODEL_CARD.md">Model card</a> ·
-  <a href="docs/publications/vons-paper-v1.0.pdf">Paper</a> ·
-  <a href="docs/publications/vons-tech-report-v1.0.1.pdf">Tech Report</a> ·
+  <a href="docs/publications/vons-paper-v1.1.pdf">Paper</a> ·
+  <a href="docs/publications/vons-tech-report-v1.1.pdf">Tech Report</a> ·
   <a href="docs/COMMUNITY.md">Community</a> ·
   <a href="CONTRIBUTING.md">Contribute</a> ·
   <a href="docs/PUBLIC_RELEASE.md">Release guide</a>
@@ -55,18 +57,22 @@ This release includes source, documentation and the reviewed research publicatio
 
 | Read the research | Version | Download |
 | --- | --- | --- |
-| Vons: A Compact, Host-Controlled Decision Component for Agent Workflows | Paper v1.0, final editorial revision | [PDF · 15 pages](docs/publications/vons-paper-v1.0.pdf) |
-| Vons: Compact Decision Models for Frontier-Agent Workflows | Technical Report v1.0.1 | [PDF · 20 pages](docs/publications/vons-tech-report-v1.0.1.pdf) |
+| Vons: A Compact, Host-Controlled Decision Component for Agent Workflows | Preprint v1.1 | [PDF · 21 pages](docs/publications/vons-paper-v1.1.pdf) |
+| Vons: Compact Decision Models for Frontier-Agent Workflows | Technical Report v1.1 | [PDF · 29 pages](docs/publications/vons-tech-report-v1.1.pdf) |
 
 Both articles are available under **CC BY 4.0**. See the
 [publication index and verification scope](docs/publications/README.md).
 The software remains a **0.1.0 research preview**. Article version numbers do
-not establish software readiness or new measurements. The paper was submitted
-to arXiv under **submission number 8127259**. As checked on **2026-09-25**,
-its status is **on hold** (undergoing arXiv checks). This is a submission tracking
-number, not a public arXiv article identifier. See the
-[submission record](docs/publications/ARXIV.md); no announcement or peer-review
-acceptance is claimed.
+not establish software readiness. Version 1.1 preserves the frozen v1 evidence
+and reports a separately labelled post-freeze remediation handoff; its bounded
+synthetic, local-CPU and conditional-selection results do not establish external
+generalization or production readiness. The paper uses arXiv **submission number
+8127259**. The v1.1 PDF and metadata were processed successfully on
+**2026-09-25** and submitted on **2026-09-26**. The arXiv account currently
+reports **on hold** for moderation. This is a submission tracking number, not a
+public arXiv article identifier. See the
+[submission record](docs/publications/ARXIV.md); no public announcement or
+peer-review acceptance is claimed.
 
 ## Quickstart
 
@@ -137,9 +143,11 @@ npm run build:extension
 
 Load `sdk/typescript/dist/chrome-extension` through Chrome's **Load unpacked**
 development workflow. The guide covers installation, local model storage,
-limitations and packaging. Version **0.1.0** was submitted to the Chrome Web Store
-on **2026-09-25** and is **pending review**, with automatic publication after
-approval enabled. A public store installation link will be added after approval.
+limitations and packaging. Version **0.1.0** passed review and is publicly
+available from the
+[Chrome Web Store](https://chromewebstore.google.com/detail/vons-%E2%80%94-local-decisions/cbmjkokoojinfgafahncmjlfmicinide)
+as verified on **2026-09-25**. Store availability does not establish model
+quality, production readiness or publication of compatible model weights.
 
 ## Research workflow
 

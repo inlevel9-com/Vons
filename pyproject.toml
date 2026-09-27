@@ -16,6 +16,7 @@ dependencies = []
 [project.optional-dependencies]
 train = ["numpy>=1.26", "torch>=2.2", "transformers>=4.40", "safetensors>=0.4"]
 export = ["onnx>=1.16", "onnxruntime>=1.18", "onnxscript>=0.5"]
+inference = ["numpy>=1.26", "onnxruntime>=1.18", "tokenizers>=0.19"]
 ollama = ["ollama>=0.3"]
 dev = ["pytest>=8", "ruff>=0.6"]
 

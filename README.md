@@ -149,6 +149,53 @@ available from the
 as verified on **2026-09-25**. Store availability does not establish model
 quality, production readiness or publication of compatible model weights.
 
+## Ollama native tool-call
+
+Stage 1 Python host for Ollama's `/api/chat` tool-calling loop. Advertises
+exactly one native function, `vons_decide`; the host validates every tool-call
+argument against the `DecisionRequest` contract, runs only the verified local
+ONNX bundle via `vons/onnx_runtime.py`, and reconciles exact question-ID
+positions on the way out. Raw Ollama output is preserved separately and never
+trusted as a decision.
+
+```sh
+# Dependencies for schema-only fixtures
+python -m pip install -e '.[dev]'
+python -m vons.cli ollama-tool-call --help
+
+# Add the local CPU ONNX Runtime and bundled tokenizer for real local inference
+python -m pip install -e '.[dev,inference]'
+cat > /tmp/vons-messages.json <<'JSON'
+{"messages":[{"role":"system","content":"Use vons_decide for one bounded choice."},{"role":"user","content":"Synthetic example: choose the safest next response when a request is underspecified."}]}
+JSON
+python -m vons.cli ollama-tool-call \
+  --host http://127.0.0.1:11434 \
+  --model qwen3.8:27b-mlx \
+  --bundle ./verified-local-bundle \
+  --input /tmp/vons-messages.json
+```
+
+Use `--synthetic choice-0` or `--synthetic abstain` instead of `--bundle` for
+schema-only checks; those modes do not load or execute ONNX weights. The bundle
+mode verifies the supplied manifest and files before opening the Ollama request.
+
+Security gates applied before inference:
+1. Host must resolve to loopback (`127.0.0.1`, `localhost`, `::1`).
+2. `301/302/303/307/308` redirects that leave loopback are blocked by a custom
+   `urllib` handler.
+3. Only the `vons_decide` tool name is accepted; other tool calls raise a
+   sanitized error before any backend runs.
+4. Sanitized `OllamaToolCallError` messages use short fixed literals with a
+   12-character hex `error_id`; request/prompt/response text and cause
+   messages are never echoed to stdout or stderr.
+
+Synthetic tests in `tests/test_ollama_tool_call.py` cover the local ONNX adapter
+with fake sessions, injected backends, malformed/unknown arguments, wrong tool
+names, response reconciliation, missing bundles, non-loopback endpoints, and
+redirect escape paths. A local Ollama smoke is limited to synthetic input and
+does not establish model quality or performance; see
+[WORK_ALLOCATION.md](docs/WORK_ALLOCATION.md) for its evidence boundary.
+
 ## Research workflow
 
 Install the optional dependencies when running your own experiments:

@@ -13,8 +13,9 @@ report what works or fails.
 | Read the research | [Paper and Tech Report](publications/README.md) | Reviewed PDFs and exact verification scope are included |
 | Try without weights | The walkthrough below | Deterministic contract and synthetic data only |
 | Run model inference | [TypeScript SDK](../sdk/typescript/README.md) | Requires separately obtained, reviewed model/tokenizer assets |
-| Share experience | [Experience report](https://github.com/inlevel9-com/Vons/issues/new?template=experience.yml) | GitHub account required to submit |
-| Reproduce a result | [Reproduction report](https://github.com/inlevel9-com/Vons/issues/new?template=reproduction.yml) | Form included; evidence reviewed separately |
+| Try the Chrome extension | [Chrome Web Store listing](https://chromewebstore.google.com/detail/vons-%E2%80%94-local-decisions/cbmjkokoojinfgafahncmjlfmicinide) and [setup guide](../sdk/typescript/extension/README.md) | Requires a compatible local model bundle; this repository does not include weights or tokenizer assets |
+| Share experience | [Experience report](https://github.com/inlevel9-com/Vons/issues/new?template=experience.yml), or [optional email fallback](mailto:oswarld@inlevel9.com?subject=Vons%20first-use%20feedback) | The issue form may be blocked; email is optional and not posted publicly |
+| Reproduce a result | [Reproduction report](https://github.com/inlevel9-com/Vons/issues/new?template=reproduction.yml), or [email a reproduction report](mailto:oswarld@inlevel9.com?subject=Vons%20reproduction%20report) | Evidence is reviewed separately; do not attach restricted inputs |
 | Improve Vons | [Contributing](../CONTRIBUTING.md) | Documentation, tests and scoped code changes welcome |
 
 The destinations are [GitHub: inlevel9-com/Vons](https://github.com/inlevel9-com/Vons)
@@ -26,6 +27,24 @@ provide hosted model inference.
 The current software terms require a separate agreement for
 enterprise/commercial use, including enterprise evaluation. Reading the paper
 under its article terms is separate from software use.
+
+GitHub may require you to sign in before using the report forms. If you cannot
+submit a report there, you can email a short first-use report to
+[oswarld@inlevel9.com](mailto:oswarld@inlevel9.com?subject=Vons%20first-use%20feedback).
+This is voluntary and goes to the email recipients rather than being posted as
+a public issue; it is not telemetry or an automatic model-training signal.
+Please do not send secrets, private prompts, customer traces, restricted data or
+model weights. A useful short report can answer:
+
+1. What were you trying to accomplish, and which Vons path did you try?
+2. Did you get a useful first result? If not, where did you get stuck?
+3. Would you use Vons again for this task? What one change would make it useful?
+
+For a reproduction, include the claim/source, environment, steps, expected and
+observed behavior, and permitted hashes. Keep raw or restricted inputs local.
+The source revision, device and runtime are optional for experience reports;
+omit personal or confidential details. Email may reveal your address to its
+recipients.
 
 ## A five-minute first exploration
 

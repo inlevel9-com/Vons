@@ -5,19 +5,25 @@
   "type": "module",
   "dependencies": {
     "@huggingface/tokenizers": "0.2.0",
-    "onnxruntime-web": "1.30.0"
+    "@modelcontextprotocol/server": "2.1.0",
+    "onnxruntime-web": "1.30.0",
+    "zod": "4.6.5"
   },
   "exports": {
     ".": "./src/index.ts",
-    "./onnx": "./src/onnx.ts"
+    "./onnx": "./src/onnx.ts",
+    "./mcp": "./src/mcp.ts",
+    "./mcp-cli": "./src/mcp-cli.ts"
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test test/index.test.mjs test/onnx.test.mjs test/parity.test.mjs test/extension.test.mjs",
+    "test": "node --experimental-strip-types --test test/index.test.mjs test/onnx.test.mjs test/parity.test.mjs test/extension.test.mjs test/mcp.test.mjs",
     "build:browser": "esbuild demo/main.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=demo/main.js",
     "build:benchmark": "esbuild demo/benchmark.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=demo/benchmark.js",
     "build:parity": "esbuild demo/parity.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=demo/parity.js",
     "build:extension": "node extension/build.mjs",
-    "typecheck:extension": "tsc -p extension/tsconfig.json"
+    "build:mcp": "esbuild src/mcp.ts src/mcp-cli.ts --bundle=false --platform=node --target=es2022 --outdir=dist-mcp-test/ --ignore-annotations",
+    "typecheck:extension": "tsc -p extension/tsconfig.json",
+    "typecheck:mcp": "tsc --noEmit --allowImportingTsExtensions --noEmitOnError --target ES2022 --moduleResolution bundler --module ESNext --strict --skipLibCheck --esModuleInterop --lib ES2022,DOM src/mcp.ts src/mcp-cli.ts src/index.ts src/onnx.ts"
   },
   "engines": {
     "node": ">=22"

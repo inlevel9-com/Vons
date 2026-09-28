@@ -205,10 +205,12 @@ not been tested from this repository.
 
 You need Node.js 22 or later, this source checkout, a user-supplied local Vons
 bundle with its verified manifest, the official `tunnel-client`, a `tunnel_id`
-and runtime API key, and access to ChatGPT Developer Mode. Tunnel permissions
-and ChatGPT workspace permissions are separate: creating or editing a tunnel
-requires Tunnels Read + Manage; running/selecting it requires Tunnels Read + Use;
-some workspaces also require an administrator to enable Developer Mode.
+and runtime API key, and access to the ChatGPT tunnel connector. Tunnel
+permissions and ChatGPT workspace permissions are separate: creating or editing
+a tunnel requires Tunnels Read + Manage; running/selecting it requires Tunnels
+Read + Use; some workspaces also require an administrator to enable Developer
+Mode. Create the runtime API key as a restricted key with Tunnels Read + Use.
+Do not use an admin key for the long-running tunnel client.
 
 Install the SDK dependencies once:
 
@@ -218,8 +220,10 @@ npm ci
 ```
 
 On a machine that can run the local MCP process, set `CONTROL_PLANE_API_KEY`
-and `VONS_TUNNEL_ID` through your secret manager, install `tunnel-client` using
-the [official guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels),
+through your secret manager and set `VONS_TUNNEL_ID` to the ID created in
+[OpenAI Platform Tunnels](https://platform.openai.com/settings/organization/tunnels).
+Install `tunnel-client` using the [OpenAI guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+or its [operator quickstart](https://github.com/openai/tunnel-client/blob/master/docs/end-user-guide.md),
 then create and run a stdio profile from the repository root. Replace the
 bundle path with an absolute path to your own verified bundle:
 
@@ -234,8 +238,10 @@ tunnel-client doctor --profile vons-local --explain
 tunnel-client run --profile vons-local
 ```
 
-Keep the tunnel client running, then in ChatGPT create a Developer Mode app,
-choose **Tunnel** as its connection, and select or enter the same tunnel ID.
+Associate the tunnel with the ChatGPT workspace you will use. Keep the tunnel
+client running, then open ChatGPT **Settings → Connectors**, choose **Connection:
+Tunnel**, and select or paste the same tunnel ID. Some workspaces require their
+administrator to enable Developer Mode before the connector is available.
 The CLI requires a local bundle; it does not download model weights. The
 stdio server exposes `vons_decide` and performs local ONNX inference, but
 ChatGPT conversation content and tool arguments still pass through OpenAI.

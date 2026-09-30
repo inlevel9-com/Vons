@@ -199,18 +199,19 @@ does not establish model quality or performance; see
 ## ChatGPT Developer Mode (private MCP test)
 
 For a private, owner-operated ChatGPT test, OpenAI's [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
-can forward a local Vons stdio MCP server without exposing an inbound public
+forwards a local Vons stdio MCP server without exposing an inbound public
 endpoint. This is setup guidance only; a ChatGPT Developer Mode connection has
 not been tested from this repository.
 
-You need Node.js 22 or later, this source checkout, a user-supplied local Vons
+You need Node.js 22.6 or later, this source checkout, a user-supplied local Vons
 bundle with its verified manifest, the official `tunnel-client`, a `tunnel_id`
-and runtime API key, and access to the ChatGPT tunnel connector. Tunnel
+and runtime API key, and access to ChatGPT Developer Mode. Platform tunnel
 permissions and ChatGPT workspace permissions are separate: creating or editing
-a tunnel requires Tunnels Read + Manage; running/selecting it requires Tunnels
-Read + Use; some workspaces also require an administrator to enable Developer
-Mode. Create the runtime API key as a restricted key with Tunnels Read + Use.
-Do not use an admin key for the long-running tunnel client.
+a tunnel requires Tunnels Read + Manage; running the client or selecting a
+tunnel requires Tunnels Read + Use. ChatGPT Developer Mode is a separate
+workspace permission, and some workspaces require an administrator to enable
+it. Create the runtime API key with Tunnels Read + Use; do not use an admin key
+for the long-running tunnel client.
 
 Install the SDK dependencies once:
 
@@ -238,16 +239,17 @@ tunnel-client doctor --profile vons-local --explain
 tunnel-client run --profile vons-local
 ```
 
-Associate the tunnel with the ChatGPT workspace you will use. Keep the tunnel
-client running, then open ChatGPT **Settings → Connectors**, choose **Connection:
-Tunnel**, and select or paste the same tunnel ID. Some workspaces require their
-administrator to enable Developer Mode before the connector is available.
-The CLI requires a local bundle; it does not download model weights. The
-stdio server exposes `vons_decide` and performs local ONNX inference, but
-ChatGPT conversation content and tool arguments still pass through OpenAI.
-Local inference does not make a ChatGPT conversation private from ChatGPT.
-Vons returns a decision only; the host remains responsible for policy,
-consent, and any downstream execution.
+Associate the tunnel with the Platform organization and ChatGPT workspace you
+will use. Keep the tunnel client running, then in ChatGPT Plugins select the
+plus button to create a Developer Mode app. Choose **Tunnel** under Connection
+and select the available tunnel or paste the same tunnel ID. If the tunnel is
+not listed, check its workspace association and the app creator's Tunnels Read
++ Use permission. The CLI requires a local bundle; it does not download model
+weights. The stdio server exposes `vons_decide` and performs local ONNX
+inference, but ChatGPT conversation content and tool arguments still pass
+through OpenAI. Local inference does not make a ChatGPT conversation private
+from ChatGPT. Vons returns a decision only; the host remains responsible for
+policy, consent, and any downstream execution.
 
 Secure MCP Tunnel is for private use and Developer Mode testing. It does not
 support public plugin submission or distribution; sharing a public ChatGPT

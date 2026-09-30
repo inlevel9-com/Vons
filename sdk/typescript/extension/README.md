@@ -6,13 +6,21 @@ and keeps execution with the user. No model weight is included in this package.
 
 ## Build and install locally
 
-Requires Node 22+ and Chrome 114+:
+Requires Node 22.6+ and Chrome 114+:
 
 ```sh
 cd sdk/typescript
 npm ci
 npm test
 npm run build:extension
+```
+
+The build validates a staged package before replacing the default output. If a
+build fails, the existing package remains intact. To create a separate review
+package without replacing the default, use a new directory under `dist`:
+
+```sh
+npm run build:extension -- --out-dir dist/chrome-extension-review
 ```
 
 Open `chrome://extensions`, enable Developer mode for your development profile,
@@ -45,14 +53,20 @@ enterprise/commercial use requires a separate license.
 
 ## First comparison
 
-1. Click **Import model folder** and choose the directory containing exactly one
-   `bundle-manifest-v1.json`, its full ONNX graph, external-data files and tokenizer.
-   Use a manifest produced by the Vons bundle tools. Head-only/shared-v1 partition
-   manifests use a different runtime contract and are not supported here.
-2. Optionally keep the model on this device. Nothing is uploaded. The original
-   manifest and only the required runtime assets are retained, not checkpoint or
-   report files that happen to share the folder. SHA-256 verifies consistency
-   with the imported manifest, not the identity or trustworthiness of its author.
+1. Click **Import model folder** and choose a directory containing exactly one
+   supported Vons manifest. Full-graph bundles use `bundle-manifest-v1.json`.
+   Shared-v1 folders use `manifest.json`; choose **Direct candidate head** or
+   **Diffusion candidate head** before importing. The extension verifies and
+   retains the shared encoder, the selected head, that head's external data,
+   the tokenizer and the config. It does not retain the other head, calibration
+   file, checkpoint or report files. To switch heads while the folder selection
+   is still available in the open panel, change **Shared model head** and the
+   extension re-imports the selected runtime assets. After restoring a saved
+   model or reopening the panel, select the model folder again to switch heads.
+2. Optionally keep the selected model on this device. Nothing is uploaded. The
+   original manifest and only the required runtime assets are retained. SHA-256
+   verifies consistency with the imported manifest, not the identity or
+   trustworthiness of its author.
 3. Enter context, a question and 2–32 unique candidates, one per line. **Use example**
    supplies an illustrative prompt; its outcome is not a quality test.
 4. Click **Compare candidates**. Read the proposed choice or explicit abstention,
@@ -78,6 +92,11 @@ The CSP restricts code and fetches to packaged extension resources and permits
 WebAssembly compilation without permitting general JavaScript eval.
 
 ## Verification scope
+
+Shared-v1 support is present in the current local source and the separate
+`chrome-extension-shared-v1-review-20260930` build. This review build has not
+been submitted to the Chrome Web Store; do not infer shared-v1 support from the
+existing public Store listing.
 
 Source tests cover exact file integrity, missing assets, path escapes, candidate
 validation and unexpected extension permissions. On 2026-09-25, all 16 SDK tests,

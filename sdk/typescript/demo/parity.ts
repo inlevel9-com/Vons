@@ -3,11 +3,12 @@ import type { DecisionRequest, DecisionResponse, QuestionType } from "../src/ind
 
 export type ParityBackend = "direct" | "diffusion";
 export type ParityProvider = "wasm" | "webgpu";
+export type ParityExpectedFailure = "unsupported_score_question" | "aggregate_input_budget_exceeded";
 
 export interface ParityFixture {
   id: string;
   request: DecisionRequest;
-  expectedFailure?: string;
+  expectedFailure?: ParityExpectedFailure;
   matrix: { candidate_count: number; family: string; target_tokens: string };
 }
 
@@ -28,8 +29,8 @@ const manifestUrls: Record<ParityBackend, URL> = {
   diffusion: new URL("../../../artifacts/pilot-diffusion/bundle-manifest-v1.json", import.meta.url),
 };
 
-const manifestHashes: Record<ParityBackend, string> = {
-  direct: "bd39eea2b8d5ed5f4d57daefdd4822c4e2c4817a68c4a42bef850b5edcbc97d",
+export const PARITY_MANIFEST_HASHES: Record<ParityBackend, string> = {
+  direct: "bd39eea2b8d5ed5f4d57daefdd4822c4e2c4817a68c4a42bef850b5edcbc97d7",
   diffusion: "df0e7cae640c6604fb517a88d08dbdaa2454d6b3dbbf5708926349cf490b9607",
 };
 
@@ -64,7 +65,7 @@ function fixture(
   candidateCount: number,
   state: DecisionRequest["state"],
   item: DecisionRequest["questions"][number],
-  expectedFailure?: string,
+  expectedFailure?: ParityExpectedFailure,
 ): ParityFixture {
   return {
     id,
@@ -80,7 +81,7 @@ export function buildParityFixtures(): ParityFixture[] {
   for (const count of counts) {
     result.push(fixture(`short-${count}`, "choice", "short", count, "ready", question(`short-${count}-q`, "choice", "Choose the next action", options(count, "short"))));
     result.push(fixture(`unicode-${count}`, "choice", "unicode", count, { locale: "ko-KR", state: `검토 중인 화면 🌐 / пункт ${count}` }, question(`unicode-${count}-q`, "choice", "다음에 선택할 항목은 무엇입니까?", options(count, "unicode/다음"))));
-    result.push(fixture(`score-${count}`, "score", "unsupported", count, { workflow: "quality", count, labels: ["α", "β", "γ"] }, question(`score-${count}-q`, "score", "Rate the candidate outcome", options(count, "score")), "score_head_unsupported"));
+    result.push(fixture(`score-${count}`, "score", "unsupported", count, { workflow: "quality", count, labels: ["α", "β", "γ"] }, question(`score-${count}-q`, "score", "Rate the candidate outcome", options(count, "score")), "unsupported_score_question"));
     const repeats = Math.max(2, Math.floor(60 / count));
     result.push(fixture(`long-${count}`, "choice", "near-aggregate-limit", count, "state ".repeat(50), question(`long-${count}-q`, "choice", "Select the most relevant detailed action", options(count, "detail ".repeat(repeats)))));
   }
@@ -104,16 +105,42 @@ export function buildParityFixtures(): ParityFixture[] {
     2,
     "x ".repeat(700),
     question("overflow-q", "choice", "This request must fail explicitly", options(2, "overflow")),
-    "request_validation_or_tokenization_overflow",
+    "aggregate_input_budget_exceeded",
   ));
   return result;
 }
 
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
-  return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
+export function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    if (typeof value === "number" && !Number.isSafeInteger(value)) {
+      throw new TypeError("parity numbers must be safe integers");
+    }
+    const primitive = JSON.stringify(value);
+    if (primitive === undefined) throw new TypeError("parity input must be JSON-compatible");
+    return primitive;
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.some(([key]) => !/^[a-z]+$/.test(key))) {
+    throw new TypeError("parity object keys must be lowercase ASCII");
+  }
+  entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
+}
+
+export function matchesExpectedFailure(expected: ParityExpectedFailure, error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  switch (expected) {
+    case "unsupported_score_question":
+      return error.name === "Error" && error.message === "score questions are not supported by this candidate-selection ONNX head";
+    case "aggregate_input_budget_exceeded":
+      return error instanceof RangeError && (
+        /^question .+ exceeds the \d+-token aggregate input budget \(tokens=\d+\)$/.test(error.message)
+        || /^tokenized candidate has \d+ tokens; the bundle limit is \d+$/.test(error.message)
+      );
+    default:
+      return false;
+  }
 }
 
 async function sha256(value: string): Promise<string> {
@@ -128,7 +155,7 @@ export async function runParityCell(backendName: ParityBackend, provider: Parity
   let traces: OnnxTraceSample[] = [];
   const backend = await createOnnxWebBackend({
     manifestUrl: manifestUrls[backendName],
-    expectedManifestSha256: manifestHashes[backendName],
+    expectedManifestSha256: PARITY_MANIFEST_HASHES[backendName],
     provider,
     wasmPaths: "/sdk/typescript/node_modules/onnxruntime-web/dist/",
     wasmNumThreads: 1,
@@ -138,7 +165,7 @@ export async function runParityCell(backendName: ParityBackend, provider: Parity
   });
   try {
     for (const item of fixtures) {
-      const inputHash = await sha256(stableJson(item.request));
+      const inputHash = await sha256(canonicalJson(item.request));
       timings = [];
       traces = [];
       try {
@@ -151,7 +178,7 @@ export async function runParityCell(backendName: ParityBackend, provider: Parity
           input_hash: inputHash,
           request: item.request,
           matrix: item.matrix,
-          status: item.expectedFailure ? "expected_error" : "unexpected_error",
+          status: item.expectedFailure && matchesExpectedFailure(item.expectedFailure, error) ? "expected_error" : "unexpected_error",
           timings,
           traces,
           error: message,
@@ -165,6 +192,7 @@ export async function runParityCell(backendName: ParityBackend, provider: Parity
     schema: "vons.browser-parity/v1",
     backend: backendName,
     requested_provider: provider,
+    browser_user_agent: navigator.userAgent,
     fixture_count: fixtures.length,
     runtime_info: backend.runtimeInfo,
     manifest_hash: backend.manifestHash,

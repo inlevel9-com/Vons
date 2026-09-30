@@ -16,6 +16,7 @@
     <section class="model" aria-labelledby="model-heading">
       <div class="section-title"><h2 id="model-heading">01 <span>Choose a model</span></h2><span id="model-badge" class="badge">Not loaded</span></div>
       <p id="model-description">Import a Vons ONNX bundle folder. Model weights are supplied separately.</p>
+      <div id="head-choice"><label for="model-head">Shared model head</label><select id="model-head"><option value="direct">Direct candidate head</option><option value="diffusion">Diffusion candidate head</option></select><p class="hint">This selection applies to shared encoder bundles. Full-graph bundles use their included head.</p></div>
       <label class="file-button" for="bundle-files">Import model folder <span aria-hidden="true">↗</span></label>
       <input id="bundle-files" type="file" webkitdirectory multiple class="visually-hidden">
       <label class="remember"><input id="remember" type="checkbox"> Keep this model on this device</label>
@@ -26,7 +27,7 @@
       <label for="state">Context</label><textarea id="state" rows="3" maxlength="20000" placeholder="What does the model need to know?" required></textarea>
       <label for="question">Question</label><input id="question" maxlength="2000" placeholder="Which option fits this situation?" required>
       <label for="options">Candidates <span class="hint">One per line · 2–32</span></label><textarea id="options" rows="4" maxlength="20000" placeholder="First option&#10;Second option" required></textarea>
-      <details><summary>Runtime settings</summary><label for="provider">Execution provider</label><select id="provider"><option value="wasm">WASM · CPU (default)</option value="webgpu">WebGPU · experimental</option></select><p class="hint">WebGPU requires a compatible adapter. Failed requests stay visible; no silent fallback.</p></details>
+      <details><summary>Runtime settings</summary><label for="provider">Execution provider</label><select id="provider"><option value="wasm">WASM · CPU (default)</option><option value="webgpu">WebGPU · experimental</option></select><p class="hint">WebGPU requires a compatible adapter. Failed requests stay visible; no silent fallback.</p></details>
       <div class="run-actions"><button id="run" type="submit" disabled>Compare candidates <span aria-hidden="true">→</span></button><button id="cancel" type="button" hidden>Cancel</button></div>
       <p id="status" role="status" aria-live="polite">Start by importing a model. Prompts stay in this panel.</p>
     </form>

@@ -25,14 +25,14 @@ function syntheticManifest(overrides = {}) {
   return Object.assign({}, base, overrides);
 }
 
-function writeSyntheticBundleDir(manifest) {
+function writeSyntheticBundleDir(manifest, payloads = new Map()) {
   const dir = mkdtempSync(join(tmpdir(), "vons-mcp-bundle-"));
   for (const record of manifest.files) {
     const parts = record.path.split("/");
     if (parts.length > 1) {
       mkdirSync(join(dir, ...parts.slice(0, -1)), { recursive: true });
     }
-    writeFileSync(join(dir, record.path), Buffer.alloc(record.bytes ?? 4));
+    writeFileSync(join(dir, record.path), payloads.get(record.path) ?? Buffer.alloc(record.bytes ?? 4));
   }
   const manifestJson = JSON.stringify(manifest, null, 2);
   const manifestBytes = Buffer.from(manifestJson, "utf8");
@@ -98,11 +98,71 @@ class SyntheticThrowingBackend {
   async decide(request) { void request; throw new Error(this.msg); }
 }
 
+function createLoopbackStdio() {
+  const serverStdin = new PassThrough();
+  const serverStdout = new PassThrough();
+  let outBuf = "";
+  const outLines = [];
+  let resolver = null;
+  serverStdout.setEncoding("utf8");
+  serverStdout.on("data", (chunk) => {
+    outBuf += chunk;
+    let idx;
+    while ((idx = outBuf.indexOf("\n")) !== -1) {
+      const line = outBuf.slice(0, idx);
+      outBuf = outBuf.slice(idx + 1);
+      if (line.length > 0) outLines.push(line);
+      if (resolver) {
+        const res = resolver;
+        resolver = null;
+        res(outLines.shift());
+      }
+    }
+  });
+  serverStdout.on("end", () => {
+    if (resolver) {
+      const res = resolver;
+      resolver = null;
+      res(null);
+    }
+  });
+  const nextLine = (timeoutMs = 8000) => {
+    if (outLines.length > 0) return Promise.resolve(outLines.shift());
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        resolver = null;
+        reject(new Error(`timeout waiting for MCP message on stdout (buffer=${JSON.stringify(outBuf)})`));
+      }, timeoutMs);
+      resolver = (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      };
+    });
+  };
+  const nextMessage = async (timeoutMs) => {
+    const line = await nextLine(timeoutMs);
+    if (!line) throw new Error("stream ended while waiting for message");
+    return JSON.parse(line);
+  };
+  const writeLine = (line) => {
+    serverStdin.write(line + "\n");
+  };
+  const end = () => {
+    serverStdin.end();
+  };
+  return { serverStdin, serverStdout, writeLine, end, nextMessage, nextLine, serverStdoutLines: outLines };
+}
+
+function mcpRequest(method, params, id) {
+  return JSON.stringify({ jsonrpc: "2.0", id, method, params });
+}
+
 describe("mcp.ts: isForbiddenBundlePath path safety", () => {
   test("allows relative, safe paths", async (t) => {
     void t;
     const { isForbiddenBundlePath } = await import("../src/mcp.ts");
     assert.equal(isForbiddenBundlePath("model.onnx"), false);
+    assert.equal(isForbiddenBundlePath("model..v2.onnx"), false);
     assert.equal(isForbiddenBundlePath("a/b/c.json"), false);
     assert.equal(isForbiddenBundlePath("tokenizer/tokenizer.json"), false);
   });
@@ -118,6 +178,7 @@ describe("mcp.ts: isForbiddenBundlePath path safety", () => {
     const { isForbiddenBundlePath } = await import("../src/mcp.ts");
     assert.equal(isForbiddenBundlePath("/absolute/path"), true);
     assert.equal(isForbiddenBundlePath("../escape"), true);
+    assert.equal(isForbiddenBundlePath("."), true);
     assert.equal(isForbiddenBundlePath("sub/../escape"), true);
     assert.equal(isForbiddenBundlePath("foo%2e%2ebar"), true);
     assert.equal(isForbiddenBundlePath("C:\\win\\path"), true);
@@ -128,11 +189,31 @@ describe("mcp.ts: isForbiddenBundlePath path safety", () => {
 });
 
 describe("mcp-cli.ts createOnnxWebBackend integration: expectedManifestSha256 object-path mismatch regression", () => {
-  test("pretty disk manifest bytes hash differs from stableJson() in-memory hash; omitting expectedManifestSha256 lets structural validation proceed", async (t) => {
+  test("pretty disk manifest hash is accepted and invalid model bytes fail at the declared asset digest", async (t) => {
     void t;
     const { createHash } = await import("node:crypto");
     const sdkMod = await import("../src/mcp.ts");
     const manifest = syntheticManifest();
+    const payloads = new Map([
+      ["tokenizer.json", Buffer.from(JSON.stringify({
+        version: "1.0",
+        added_tokens: [],
+        normalizer: { type: "BertNormalizer", clean_text: true, handle_chinese_chars: true, strip_accents: null, lowercase: true },
+        pre_tokenizer: { type: "BertPreTokenizer" },
+        post_processor: { type: "BertProcessing", sep: ["[SEP]", 2], cls: ["[CLS]", 1] },
+        decoder: { type: "WordPiece", prefix: "##", cleanup: true },
+        model: { type: "WordPiece", unk_token: "[UNK]", continuing_subword_prefix: "##", max_input_chars_per_word: 100,
+          vocab: { "[UNK]": 0, "[CLS]": 1, "[SEP]": 2, "[PAD]": 3 } },
+      }), "utf8")],
+      ["tokenizer_config.json", Buffer.from(JSON.stringify({
+        tokenizer_class: "BertTokenizer", unk_token: "[UNK]", cls_token: "[CLS]", sep_token: "[SEP]", model_max_length: 32,
+      }), "utf8")],
+    ]);
+    for (const [path, bytes] of payloads) {
+      const record = manifest.files.find((item) => item.path === path);
+      record.bytes = bytes.byteLength;
+      record.sha256 = createHash("sha256").update(bytes).digest("hex");
+    }
     const prettyJson = JSON.stringify(manifest, null, 2);
     const diskBytes = Buffer.from(prettyJson, "utf8");
     const diskSha256 = createHash("sha256").update(diskBytes).digest("hex");
@@ -157,7 +238,7 @@ describe("mcp-cli.ts createOnnxWebBackend integration: expectedManifestSha256 ob
       "regression requires pretty-disk hash and stable-json hash to actually differ",
     );
     const { loadBundleManifestStrict } = sdkMod;
-    const { dir } = writeSyntheticBundleDir(manifest);
+    const { dir } = writeSyntheticBundleDir(manifest, payloads);
     const loaded = loadBundleManifestStrict(dir);
     assert.equal(loaded.manifestSha256, diskSha256);
     assert.equal(loaded.manifest.schema_version, manifest.schema_version);
@@ -173,7 +254,7 @@ describe("mcp-cli.ts createOnnxWebBackend integration: expectedManifestSha256 ob
       const fs2 = await import("node:fs");
       const abs = path.join(dir, ...rel.split("/"));
       const bytes = fs2.readFileSync(abs);
-      return new Response(bytes.buffer, {
+      return new Response(bytes, {
         status: 200,
         headers: { "content-type": "application/octet-stream", "content-length": String(bytes.byteLength) },
       });
@@ -190,11 +271,7 @@ describe("mcp-cli.ts createOnnxWebBackend integration: expectedManifestSha256 ob
       thrownMsg = e instanceof Error ? e.message : String(e);
     }
     assert.ok(thrownMsg !== null, "expected backend creation to fail for a synthetic bundle with invalid asset bytes");
-    assert.equal(
-      /SHA-256 mismatch/i.test(thrownMsg),
-      false,
-      `manifest SHA mismatch error must not appear; structural validation and asset loading must fail instead. Got: ${thrownMsg.slice(0, 180)}`,
-    );
+    assert.match(thrownMsg, /bundle SHA-256 mismatch: model\.onnx/);
   });
 });
 
@@ -238,6 +315,15 @@ describe("mcp.ts: loadBundleManifestStrict strict filesystem loader", () => {
     try {
       assert.throws(() => loadBundleManifestStrict(dir), /forbidden|traversal/);
     } finally { rmSync(dir, { recursive: true }); }
+  });
+  test("rejects a declared asset path that resolves to a directory", async (t) => {
+    void t;
+    const { loadBundleManifestStrict } = await import("../src/mcp.ts");
+    const badManifest = syntheticManifest();
+    badManifest.files = [{ path: "asset-dir", role: "model_graph", bytes: 4, sha256: "1".repeat(64), runtime_loaded: true, model_asset: true }];
+    mkdirSync(join(bundleDir, "asset-dir"));
+    writeFileSync(join(bundleDir, "bundle-manifest-v1.json"), JSON.stringify(badManifest, null, 2));
+    assert.throws(() => loadBundleManifestStrict(bundleDir), /not a regular file: asset-dir/);
   });
   test("rejects manifest SHA-256 mismatch explicitly (no silent fallback)", async (t) => {
     void t;
@@ -299,6 +385,13 @@ describe("mcp.ts: createMcpServer synthetic backend validation", () => {
     void t;
     const { createMcpServer } = await import("../src/mcp.ts");
     assert.throws(() => createMcpServer({}), /backend.*DecisionBackend/);
+  });
+  test("rejects backend implementations without a recognized runtime identity", async (t) => {
+    void t;
+    const { createMcpServer } = await import("../src/mcp.ts");
+    const decide = async () => ({ answers: [], backend: "direct", model_id: "synthetic" });
+    assert.throws(() => createMcpServer({ backend: { decide } }), /options\.backend\.backend must be/);
+    assert.throws(() => createMcpServer({ backend: { backend: "unknown", decide } }), /options\.backend\.backend must be/);
   });
   test("DecisionRequestZodSchema strict-rejects empty questions", async (t) => {
     void t;
@@ -637,64 +730,89 @@ describe("mcp-cli.ts: CLI argument handling", () => {
 });
 
 describe("mcp.ts: MCP initialize / tools/list / tools/call stdio round trip (synthetic backend, injected)", () => {
-  function createLoopbackStdio() {
-    const serverStdin = new PassThrough();
-    const serverStdout = new PassThrough();
-    let outBuf = "";
-    const outLines = [];
-    let resolver = null;
-    serverStdout.setEncoding("utf8");
-    serverStdout.on("data", (chunk) => {
-      outBuf += chunk;
-      let idx;
-      while ((idx = outBuf.indexOf("\n")) !== -1) {
-        const line = outBuf.slice(0, idx);
-        outBuf = outBuf.slice(idx + 1);
-        if (line.length > 0) outLines.push(line);
-        if (resolver) {
-          const res = resolver;
-          resolver = null;
-          res(outLines.shift());
-        }
-      }
+  test("runStdioMcpServer remains pending until normal stdin EOF and releases transport listeners", async (t) => {
+    void t;
+    const { runStdioMcpServer } = await import("../src/mcp.ts");
+    const loop = createLoopbackStdio();
+    let settled = false;
+    const serverPromise = runStdioMcpServer({
+      backend: new SyntheticOkBackend(["A"]),
+      manifest: syntheticManifest(),
+      manifestSha256: "b".repeat(64),
+      bundleRoot: "/tmp/stdio-lifecycle-eof",
+      stdin: loop.serverStdin,
+      stdout: loop.serverStdout,
+    }).then(() => {
+      settled = true;
     });
-    serverStdout.on("end", () => {
-      if (resolver) {
-        const res = resolver;
-        resolver = null;
-        res(null);
-      }
-    });
-    const nextLine = (timeoutMs = 8000) => {
-      if (outLines.length > 0) return Promise.resolve(outLines.shift());
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => {
-          resolver = null;
-          reject(new Error(`timeout waiting for MCP message on stdout (buffer=${JSON.stringify(outBuf)})`));
-        }, timeoutMs);
-        resolver = (v) => {
-          clearTimeout(timer);
-          resolve(v);
-        };
-      });
-    };
-    const nextMessage = async (timeoutMs) => {
-      const line = await nextLine(timeoutMs);
-      if (!line) throw new Error("stream ended while waiting for message");
-      return JSON.parse(line);
-    };
-    const writeLine = (line) => {
-      serverStdin.write(line + "\n");
-    };
-    const end = () => {
-      serverStdin.end();
-    };
-    return { serverStdin, serverStdout, writeLine, end, nextMessage, nextLine, serverStdoutLines: outLines };
-  }
 
-  function mcpRequest(method, params, id) {
-    return JSON.stringify({ jsonrpc: "2.0", id, method, params });
-  }
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false, "server promise must remain pending after transport startup");
+
+    loop.end();
+    await serverPromise;
+    assert.equal(settled, true, "normal stdin EOF must settle the server promise");
+    for (const event of ["data", "error", "end", "close"]) {
+      assert.equal(loop.serverStdin.listenerCount(event), 0, `stdin ${event} listeners must be removed on EOF`);
+    }
+  });
+
+  test("runStdioMcpServer keeps abort handling active after transport startup", async (t) => {
+    void t;
+    const { runStdioMcpServer } = await import("../src/mcp.ts");
+    const loop = createLoopbackStdio();
+    const controller = new AbortController();
+    let settled = false;
+    const serverPromise = runStdioMcpServer({
+      backend: new SyntheticOkBackend(["A"]),
+      manifest: syntheticManifest(),
+      manifestSha256: "c".repeat(64),
+      bundleRoot: "/tmp/stdio-lifecycle-abort",
+      stdin: loop.serverStdin,
+      stdout: loop.serverStdout,
+      signal: controller.signal,
+    }).then(() => {
+      settled = true;
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false, "server promise must remain pending after transport startup");
+
+    controller.abort();
+    await serverPromise;
+    assert.equal(settled, true, "abort after startup must close the transport and settle the server promise");
+    for (const event of ["data", "error", "end", "close"]) {
+      assert.equal(loop.serverStdin.listenerCount(event), 0, `stdin ${event} listeners must be removed after abort`);
+    }
+  });
+
+  test("runStdioMcpServer closes a partially connected transport when startup fails", async (t) => {
+    void t;
+    const { runStdioMcpServer } = await import("../src/mcp.ts");
+    const stdin = new PassThrough();
+    const originalOn = stdin.on.bind(stdin);
+    let dataListenerWasAdded = false;
+    stdin.on = (event, listener) => {
+      if (event === "error" && dataListenerWasAdded) throw new Error("synthetic stdin second listener failure");
+      const result = originalOn(event, listener);
+      if (event === "data") dataListenerWasAdded = true;
+      return result;
+    };
+
+    await assert.rejects(
+      runStdioMcpServer({
+        backend: new SyntheticOkBackend(["A"]),
+        manifest: syntheticManifest(),
+        manifestSha256: "d".repeat(64),
+        bundleRoot: "/tmp/stdio-lifecycle-start-failure",
+        stdin,
+        stdout: new PassThrough(),
+      }),
+      /synthetic stdin second listener failure/,
+    );
+    assert.equal(dataListenerWasAdded, true, "startup must fail after the data listener was registered");
+    assert.equal(stdin.listenerCount("data"), 0, "the partially connected data listener must be removed after startup failure");
+  });
 
   test("initialize returns server capabilities with tool + resource, then list tools, then call vons_decide (SyntheticOkBackend)", async (t) => {
     void t;
@@ -772,6 +890,7 @@ describe("mcp.ts: MCP initialize / tools/list / tools/call stdio round trip (syn
     void t;
     const { runStdioMcpServer } = await import("../src/mcp.ts");
     const backend = {
+      backend: "direct",
       async decide() {
         return {
           answers: [
@@ -827,6 +946,214 @@ describe("mcp.ts: MCP initialize / tools/list / tools/call stdio round trip (syn
     await serverPromise;
   });
 
+  test("rejects backend answers that match the request IDs but arrive in a different order", async (t) => {
+    void t;
+    const { runStdioMcpServer } = await import("../src/mcp.ts");
+    const backend = {
+      backend: "direct",
+      async decide() {
+        return {
+          answers: [
+            { question_id: "q2", status: "ok", choice: "A", probabilities: [{ option: "A", probability: 1 }], confidence: 1 },
+            { question_id: "q1", status: "ok", choice: "A", probabilities: [{ option: "A", probability: 1 }], confidence: 1 },
+          ],
+          backend: "direct",
+          model_id: "synthetic-reordered-answers",
+        };
+      },
+    };
+    const loop = createLoopbackStdio();
+    const ac = new AbortController();
+    const serverPromise = runStdioMcpServer({
+      backend,
+      stdin: loop.serverStdin,
+      stdout: loop.serverStdout,
+      signal: ac.signal,
+    }).catch((error) => error);
+
+    loop.writeLine(mcpRequest(
+      "initialize",
+      { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "mcp-order-mismatch", version: "0.1.0" } },
+      411,
+    ));
+    assert.equal((await loop.nextMessage(8000)).id, 411);
+    loop.writeLine(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }));
+    loop.writeLine(mcpRequest("tools/call", {
+      name: "vons_decide",
+      arguments: {
+        state: "synthetic request with ordered questions",
+        questions: [
+          { id: "q1", type: "choice", prompt: "first", options: ["A", "B"] },
+          { id: "q2", type: "choice", prompt: "second", options: ["A", "B"] },
+        ],
+      },
+    }, 412));
+    const callResp = await loop.nextMessage(8000);
+    assert.equal(callResp.id, 412);
+    assert.equal(callResp.result?.isError, true);
+    assert.match(JSON.parse(callResp.result.content[0].text).error, /IDs and order must match/);
+
+    ac.abort();
+    loop.end();
+    await serverPromise;
+  });
+
+  test("reconciles backend output against the original request after backend-side mutation", async (t) => {
+    void t;
+    const { runStdioMcpServer } = await import("../src/mcp.ts");
+    const backend = {
+      backend: "direct",
+      async decide(request) {
+        request.questions[0].options.push("ROGUE");
+        return {
+          answers: [{
+            question_id: request.questions[0].id,
+            status: "ok",
+            choice: "ROGUE",
+            probabilities: [{ option: "ROGUE", probability: 1 }],
+            confidence: 1,
+          }],
+          backend: "direct",
+          model_id: "synthetic-mutated-request",
+        };
+      },
+    };
+    const loop = createLoopbackStdio();
+    const ac = new AbortController();
+    const serverPromise = runStdioMcpServer({
+      backend,
+      stdin: loop.serverStdin,
+      stdout: loop.serverStdout,
+      signal: ac.signal,
+    }).catch((error) => error);
+
+    loop.writeLine(mcpRequest(
+      "initialize",
+      { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "mcp-mutated-request", version: "0.1.0" } },
+      421,
+    ));
+    assert.equal((await loop.nextMessage(8000)).id, 421);
+    loop.writeLine(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }));
+    loop.writeLine(mcpRequest("tools/call", {
+      name: "vons_decide",
+      arguments: {
+        state: "synthetic request immutability boundary",
+        questions: [{ id: "q1", type: "choice", prompt: "choose", options: ["A", "B"] }],
+      },
+    }, 422));
+    const callResp = await loop.nextMessage(8000);
+    assert.equal(callResp.id, 422);
+    assert.equal(callResp.result?.isError, true);
+    assert.match(JSON.parse(callResp.result.content[0].text).error, /outside the request candidate set/);
+    assert.equal(callResp.result.content[0].text.includes("ROGUE"), false);
+
+    ac.abort();
+    loop.end();
+    await serverPromise;
+  });
+
+  test("rejects response choices and probability labels outside each question's candidates; accepts implicit boolean candidates", async (t) => {
+    void t;
+    const { runStdioMcpServer } = await import("../src/mcp.ts");
+    let callIndex = 0;
+    const backend = {
+      backend: "direct",
+      async decide(request) {
+        const question = request.questions[0];
+        const answer = callIndex++ === 0
+          ? { choice: "ROGUE", probabilities: [{ option: "ROGUE", probability: 1 }] }
+          : question.type === "boolean"
+            ? { choice: "true", probabilities: [{ option: "true", probability: 1 }] }
+            : { choice: "A", probabilities: [{ option: "A", probability: 0.5 }, { option: "ROGUE", probability: 0.5 }] };
+        return {
+          answers: [{ question_id: question.id, status: "ok", ...answer, confidence: 0.7 }],
+          backend: "direct",
+          model_id: "synthetic-unrequested-option",
+        };
+      },
+    };
+    const loop = createLoopbackStdio();
+    const ac = new AbortController();
+    const serverPromise = runStdioMcpServer({ backend, stdin: loop.serverStdin, stdout: loop.serverStdout, signal: ac.signal }).catch((error) => error);
+
+    loop.writeLine(mcpRequest("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "mcp-option-boundary", version: "0.1.0" } }, 4301));
+    assert.equal((await loop.nextMessage(8000)).id, 4301);
+    loop.writeLine(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }));
+
+    const call = async (question, id) => {
+      loop.writeLine(mcpRequest("tools/call", { name: "vons_decide", arguments: { state: "synthetic candidate boundary", questions: [question] } }, id));
+      return loop.nextMessage(8000);
+    };
+    const unrequestedChoice = await call({ id: "q-rogue-choice", type: "choice", prompt: "choose", options: ["A", "B"] }, 4302);
+    assert.equal(unrequestedChoice.result?.isError, true);
+    const firstError = JSON.parse(unrequestedChoice.result.content[0].text).error;
+    assert.match(firstError, /outside the request candidate set/);
+    assert.equal(firstError.includes("ROGUE"), false);
+
+    const unrequestedProbability = await call({ id: "q-rogue-probability", type: "choice", prompt: "choose", options: ["A", "B"] }, 4303);
+    assert.equal(unrequestedProbability.result?.isError, true);
+    assert.match(JSON.parse(unrequestedProbability.result.content[0].text).error, /outside the request candidate set/);
+
+    const implicitBoolean = await call({ id: "q-implicit-boolean", type: "boolean", prompt: "is this true?", options: [] }, 4304);
+    assert.equal(implicitBoolean.result?.isError, false);
+    assert.equal(JSON.parse(implicitBoolean.result.content[0].text).answers[0].choice, "true");
+
+    ac.abort();
+    loop.end();
+    await serverPromise;
+  });
+
+  test("rejects an explicit requested backend that does not match the configured backend before inference", async (t) => {
+    void t;
+    const { runStdioMcpServer } = await import("../src/mcp.ts");
+    let backendRan = false;
+    const backend = {
+      backend: "direct",
+      async decide() {
+        backendRan = true;
+        throw new Error("backend must not run for a backend mismatch");
+      },
+    };
+    const loop = createLoopbackStdio();
+    const ac = new AbortController();
+    const serverPromise = runStdioMcpServer({ backend, stdin: loop.serverStdin, stdout: loop.serverStdout, signal: ac.signal }).catch((error) => error);
+
+    loop.writeLine(mcpRequest("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "mcp-backend-request-mismatch", version: "0.1.0" } }, 4311));
+    assert.equal((await loop.nextMessage(8000)).id, 4311);
+    loop.writeLine(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }));
+    loop.writeLine(mcpRequest("tools/call", { name: "vons_decide", arguments: { state: "synthetic backend mismatch", backend: "diffusion", questions: [{ id: "q-backend", type: "choice", prompt: "choose", options: ["A", "B"] }] } }, 4312));
+    const callResp = await loop.nextMessage(8000);
+    assert.equal(callResp.result?.isError, true);
+    assert.match(JSON.parse(callResp.result.content[0].text).error, /requested backend does not match/);
+    assert.equal(backendRan, false);
+
+    ac.abort();
+    loop.end();
+    await serverPromise;
+  });
+
+  test("rejects backend response metadata that contradicts the configured backend", async (t) => {
+    void t;
+    const { runStdioMcpServer } = await import("../src/mcp.ts");
+    const backend = new SyntheticOkBackend(["A"]);
+    backend.backend = "diffusion";
+    const loop = createLoopbackStdio();
+    const ac = new AbortController();
+    const serverPromise = runStdioMcpServer({ backend, stdin: loop.serverStdin, stdout: loop.serverStdout, signal: ac.signal }).catch((error) => error);
+
+    loop.writeLine(mcpRequest("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "mcp-backend-response-mismatch", version: "0.1.0" } }, 4321));
+    assert.equal((await loop.nextMessage(8000)).id, 4321);
+    loop.writeLine(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }));
+    loop.writeLine(mcpRequest("tools/call", { name: "vons_decide", arguments: { state: "synthetic response mismatch", questions: [{ id: "q-backend-response", type: "choice", prompt: "choose", options: ["A", "B"] }] } }, 4322));
+    const callResp = await loop.nextMessage(8000);
+    assert.equal(callResp.result?.isError, true);
+    assert.match(JSON.parse(callResp.result.content[0].text).error, /backend response backend does not match/);
+
+    ac.abort();
+    loop.end();
+    await serverPromise;
+  });
+
   test("stderr logger messages never include request, response, or backend error content", async (t) => {
     void t;
     const { runStdioMcpServer } = await import("../src/mcp.ts");
@@ -844,6 +1171,7 @@ describe("mcp.ts: MCP initialize / tools/list / tools/call stdio round trip (syn
     const sentinels = [questionSentinel, stateSentinel, promptSentinel, distinctiveErrorName, distinctiveErrorMessage];
     const logMessages = [];
     const backend = {
+      backend: "direct",
       async decide(request) {
         if (request.questions.some((q) => String(q.id) === questionSentinel || String(q.prompt) === promptSentinel)) {
           throw new distinctiveErrorClass();
@@ -901,11 +1229,6 @@ describe("mcp.ts: MCP initialize / tools/list / tools/call stdio round trip (syn
       /vons_decide backend raised a runtime error/,
       "backend failure → generic sanitized stdout error",
     );
-    assert.equal(
-      backendFailure.result.content[0].text.includes("synthetic failure echoed request"),
-      false,
-      "backend error must not include thrown message verbatim",
-    );
     const allowedLogsExactly = new Set([
       "invalid tool arguments rejected by strict schema validation",
       "request rejected by shared contract validation",
@@ -945,6 +1268,128 @@ describe("mcp.ts: MCP initialize / tools/list / tools/call stdio round trip (syn
     ac.abort();
     loop.end();
     await serverPromise;
+  });
+
+  test("whitespace-only state/prompt/option → tools/call loopback returns isError=true; valid surrounding spaces preserve verbatim", async (t) => {
+    void t;
+    const { runStdioMcpServer } = await import("../src/mcp.ts");
+    const { validateRequest } = await import("../src/index.ts");
+    const manifest = syntheticManifest();
+    const backend = new SyntheticOkBackend(["  Option (A) Padded  "]);
+    const loop = createLoopbackStdio();
+    const ac = new AbortController();
+    const serverPromise = runStdioMcpServer({
+      backend,
+      manifest,
+      manifestSha256: "9".repeat(64),
+      bundleRoot: "/tmp/nonblank-regex-mcp-bundle",
+      stdin: loop.serverStdin,
+      stdout: loop.serverStdout,
+      signal: ac.signal,
+    }).catch((e) => e);
+
+    loop.writeLine(
+      mcpRequest(
+        "initialize",
+        { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "nonblank-regex-loopback", version: "0.1.0" } },
+        6001,
+      ),
+    );
+    assert.equal((await loop.nextMessage(8000)).id, 6001);
+    loop.writeLine(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }));
+
+    const call = (args, id) => {
+      loop.writeLine(mcpRequest("tools/call", { name: "vons_decide", arguments: args }, id));
+      return loop.nextMessage(8000);
+    };
+
+    const whitespaceStateFail = await call(
+      { state: "   \t \n  ", questions: [{ id: "q-ws-state", type: "choice", prompt: "ok", options: ["A", "B"] }] },
+      6002,
+    );
+    assert.equal(
+      whitespaceStateFail.result?.isError ?? ("error" in whitespaceStateFail),
+      true,
+      "whitespace-only state string must produce tools/call isError=true (JSON-Schema-advertised regex /\\S/ enforced via Zod regex() gate)",
+    );
+
+    const whitespacePromptFail = await call(
+      { state: "ok", questions: [{ id: "q-ws-prompt", type: "choice", prompt: "     ", options: ["A", "B"] }] },
+      6003,
+    );
+    assert.equal(
+      whitespacePromptFail.result?.isError,
+      true,
+      "whitespace-only prompt string must produce tools/call isError=true (Zod regex() /\\S/ gate matches shared validateRequest !prompt.trim())",
+    );
+
+    const whitespaceOptionFail = await call(
+      { state: "ok", questions: [{ id: "q-ws-option", type: "choice", prompt: "ok", options: ["A", "   "] }] },
+      6004,
+    );
+    assert.equal(
+      whitespaceOptionFail.result?.isError,
+      true,
+      "whitespace-only single option inside otherwise-valid choice options[] must produce tools/call isError=true",
+    );
+
+    const whitespaceScoreOptionFail = await call(
+      {
+        state: "ok",
+        questions: [
+          { id: "q-ws-score-option", type: "score", prompt: "rate", options: ["1", "\t \t"], rubric: ["poor", "good"] },
+        ],
+      },
+      6005,
+    );
+    assert.equal(
+      whitespaceScoreOptionFail.result?.isError,
+      true,
+      "whitespace-only single score option inside otherwise-valid score options[] must produce tools/call isError=true",
+    );
+
+    const spacedValidRequest = {
+      state: "  session: padded spaces   ",
+      questions: [
+        {
+          id: "q-spaced-valid",
+          type: "choice",
+          prompt: "  Pick the padded option.  ",
+          options: ["  Option (A) Padded  ", "  Option (B) Reject  "],
+        },
+      ],
+    };
+    const spacedValidResp = await call(spacedValidRequest, 6006);
+    assert.equal(
+      spacedValidResp.result?.isError ?? ("error" in spacedValidResp),
+      false,
+      "valid request WITH intentional surrounding spaces on state/prompt/options must NOT produce isError",
+    );
+    const parsedValid = JSON.parse(spacedValidResp.result.content[0].text);
+    assert.equal(parsedValid.error ?? null, null, "valid padded request must produce no inner .error field");
+    assert.equal(parsedValid.answers?.[0]?.choice, "  Option (A) Padded  ", "accepted choice option value must preserve original surrounding spaces (no silent trim-transform)");
+
+    const rawValidated = /** @type {any} */ (null);
+    void rawValidated;
+    try {
+      validateRequest(spacedValidRequest);
+    } catch (e) {
+      assert.fail(`shared validateRequest must also accept intentionally-spaced inputs; got ${String(e)}`);
+    }
+    assert.equal(spacedValidRequest.state, "  session: padded spaces   ", "input state object must be UNMODIFIED after validateRequest (no trim mutation)");
+    assert.equal(spacedValidRequest.questions[0].prompt, "  Pick the padded option.  ", "input prompt must be UNMODIFIED after validateRequest");
+    assert.deepEqual(
+      spacedValidRequest.questions[0].options,
+      ["  Option (A) Padded  ", "  Option (B) Reject  "],
+      "input options must be UNMODIFIED after validators (no silent value truncation)",
+    );
+
+    ac.abort();
+    loop.end();
+    const shutdownOrError = await serverPromise;
+    if (shutdownOrError instanceof Error && !/abort|close|ended|aborted/i.test(shutdownOrError.message)) {
+      throw shutdownOrError;
+    }
   });
 
   test("malformed vons_decide arguments round trip → explicit MCP error content, no coerced choice", async (t) => {
@@ -1049,6 +1494,48 @@ describe("mcp.ts: MCP initialize / tools/list / tools/call stdio round trip (syn
       typeof tools[0].inputSchema === "object" && tools[0].inputSchema !== null,
       "vons_decide tool must advertise an inputSchema",
     );
+
+    const inputSchema = tools[0].inputSchema;
+    assert.equal(inputSchema.type, "object", "vons_decide advertised inputSchema root must be an object (JSON Schema 2020-12)");
+
+    const stateStringSchema = inputSchema.properties?.state?.anyOf?.[0];
+    assert.equal(
+      stateStringSchema?.type === "string" && stateStringSchema?.pattern === String.raw`\S`,
+      true,
+      "state string branch must advertise JSON-Schema-serializable non-blank guard (pattern = \"\\S\") in tools/list response",
+    );
+    assert.equal(
+      Object.hasOwn(stateStringSchema, "minLength"),
+      false,
+      "state string branch must use ONLY pattern:\"\\S\" regex for non-blank advertisement, not minLength",
+    );
+
+    const questionsItems = inputSchema.properties?.questions?.items?.oneOf;
+    assert.ok(Array.isArray(questionsItems) && questionsItems.length >= 3, "questions.items must expose at least three discriminator branches (choice/boolean/score)");
+
+    const choiceBranch = questionsItems.find((b) => b?.properties?.type?.const === "choice");
+    const scoreBranch = questionsItems.find((b) => b?.properties?.type?.const === "score");
+    assert.ok(choiceBranch && scoreBranch, "choice + score discriminator branches must be present in advertised schema");
+
+    for (const [label, branch] of /** @type {Array<[string, any]>} */ ([["choice", choiceBranch], ["score", scoreBranch]])) {
+      const promptSchema = branch.properties.prompt;
+      assert.equal(
+        promptSchema?.type === "string" && promptSchema?.pattern === String.raw`\S`,
+        true,
+        `${label} question prompt must advertise JSON-Schema non-blank pattern:"\\S" (no value trim) in tools/list response`,
+      );
+      const optionSchema = branch.properties.options?.items;
+      assert.equal(
+        optionSchema?.type === "string" && optionSchema?.pattern === String.raw`\S`,
+        true,
+        `${label} question options[] item must advertise JSON-Schema non-blank pattern:"\\S" (per-option, no trim) in tools/list response`,
+      );
+      assert.equal(
+        Object.hasOwn(promptSchema, "minLength") || Object.hasOwn(optionSchema, "minLength"),
+        false,
+        `${label} prompt/option JSON-Schema advertisement must use ONLY pattern:"\\S" (no revert to minLength that would advertise blanks like " " as valid)`,
+      );
+    }
 
     ac.abort();
     loop.end();
@@ -1238,3 +1725,675 @@ describe("TUI findings pass: M2 positional IDs, M3 manifest realpath, M4 docs/di
   });
 });
 
+describe("mcp.ts: schema interoperability — empty prefixItems fix for Claude Code 2.1.274", () => {
+  test("z.tuple([]) replaced with z.array(z.string()).length(0): serialized inputSchema contains no empty prefixItems anywhere", async (t) => {
+    void t;
+    const { runStdioMcpServer } = await import("../src/mcp.ts");
+    const manifest = syntheticManifest();
+    const backend = new SyntheticOkBackend(["X"]);
+    const loop = createLoopbackStdio();
+    const ac = new AbortController();
+    const serverPromise = runStdioMcpServer({
+      backend,
+      manifest,
+      manifestSha256: "f".repeat(64),
+      bundleRoot: "/tmp/no-empty-prefix-items-bundle",
+      stdin: loop.serverStdin,
+      stdout: loop.serverStdout,
+      signal: ac.signal,
+    }).catch((e) => e);
+
+    loop.writeLine(
+      mcpRequest(
+        "initialize",
+        { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "schema-interop-test", version: "0.1.0" } },
+        9001,
+      ),
+    );
+    assert.equal((await loop.nextMessage(8000)).id, 9001);
+    loop.writeLine(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }));
+
+    loop.writeLine(mcpRequest("tools/list", {}, 9002));
+    const listResp = await loop.nextMessage(6000);
+    assert.equal(listResp.id, 9002);
+    const tools = listResp.result.tools;
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0].name, "vons_decide");
+
+    const schemaText = JSON.stringify(tools[0].inputSchema);
+    const parsed = JSON.parse(schemaText);
+
+    const hasEmptyPrefixItems = (node, path = "$") => {
+      if (!node || typeof node !== "object") return false;
+      if (Array.isArray(node)) {
+        return node.some((item, i) => hasEmptyPrefixItems(item, `${path}[${i}]`));
+      }
+      if (Array.isArray(node.prefixItems) && node.prefixItems.length === 0) {
+        return true;
+      }
+      for (const key of Object.keys(node)) {
+        if (hasEmptyPrefixItems(node[key], `${path}.${key}`)) return true;
+      }
+      return false;
+    };
+
+    assert.equal(
+      hasEmptyPrefixItems(parsed),
+      false,
+      `serialized inputSchema must NOT contain any empty prefixItems: [] fields (Claude Code 2.1.274 compat). schema=${schemaText.slice(0, 1600)}`,
+    );
+
+    const questionsSchema = parsed.properties.questions.items;
+    assert.equal(typeof questionsSchema, "object", "questions.items must be an object (discriminated oneOf)");
+
+    const choiceRubricShape = questionsSchema.oneOf[0].properties.rubric;
+    assert.deepEqual(
+      choiceRubricShape,
+      { minItems: 0, maxItems: 0, type: "array", items: { type: "string" } },
+      "choice rubric (non-score rubric is empty-only) must pin exact wire shape: items string + minItems/maxItems = 0; no anyOf wrapper, no prefixItems key emitted",
+    );
+    assert.equal(
+      choiceRubricShape.prefixItems,
+      undefined,
+      "choice rubric shape must NOT carry a prefixItems key (prevents accidental reintroduction)",
+    );
+    assert.equal(
+      choiceRubricShape.anyOf,
+      undefined,
+      "choice rubric shape must NOT carry an anyOf key (single empty-array schema only; non-score non-empty rubric rejected by Zod layer, no 2..10 fallback branch)",
+    );
+
+    const booleanRubricShape = questionsSchema.oneOf[1].properties.rubric;
+    assert.deepEqual(
+      booleanRubricShape,
+      { minItems: 0, maxItems: 0, type: "array", items: { type: "string" } },
+      "boolean rubric (non-score rubric is empty-only) must pin exact wire shape: items string + minItems/maxItems = 0; no anyOf wrapper, no prefixItems key",
+    );
+    assert.equal(
+      booleanRubricShape.prefixItems,
+      undefined,
+      "boolean rubric shape must NOT carry a prefixItems key",
+    );
+    assert.equal(
+      booleanRubricShape.anyOf,
+      undefined,
+      "boolean rubric shape must NOT carry an anyOf key (single empty-array schema only; non-score non-empty rubric rejected by Zod layer, no 2..10 fallback branch)",
+    );
+
+    const booleanOptionsAnyOf = questionsSchema.oneOf[1].properties.options.anyOf;
+    const booleanOptionsEmpty = booleanOptionsAnyOf[0];
+    assert.deepEqual(
+      booleanOptionsEmpty,
+      { minItems: 0, maxItems: 0, type: "array", items: { type: "string" } },
+      "boolean options empty-array branch must pin exact wire shape: items string + minItems/maxItems = 0; no prefixItems key",
+    );
+    assert.equal(
+      booleanOptionsEmpty.prefixItems,
+      undefined,
+      "boolean options empty-array branch must NOT carry a prefixItems key",
+    );
+
+    const booleanOptionsTuple = booleanOptionsAnyOf[1];
+    assert.deepEqual(
+      booleanOptionsTuple,
+      {
+        type: "array",
+        prefixItems: [
+          { type: "string", const: "true" },
+          { type: "string", const: "false" },
+        ],
+        items: false,
+        minItems: 2,
+        maxItems: 2,
+      },
+      "boolean options true/false tuple branch must keep preserved non-empty prefixItems[2] with exact const literals, items=false, minItems/maxItems=2",
+    );
+    assert.equal(
+      Array.isArray(booleanOptionsTuple.prefixItems) && booleanOptionsTuple.prefixItems.length,
+      2,
+      "preserved boolean tuple prefixItems length must be exactly 2 (synthetic-schema regressions pin this exact preserved shape)",
+    );
+
+    ac.abort();
+    loop.end();
+    await serverPromise;
+  });
+
+  test("choice rubric: omitted or empty [] both accepted by Zod and shared validateRequest (non-score rubric must be empty-only)", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const { validateRequest } = await import("../src/index.ts");
+    const omittedRequest = {
+      state: "choice omitted rubric test",
+      questions: [
+        { id: "q-choice-no-rubric", type: "choice", prompt: "Pick one", options: ["A", "B"] },
+      ],
+    };
+    const omittedParsed = DecisionRequestZodSchema.safeParse(omittedRequest);
+    assert.equal(omittedParsed.success, true, "MCP Zod schema must accept omitted rubric for choice type");
+    assert.doesNotThrow(() => validateRequest(omittedRequest), "shared validateRequest must accept omitted rubric for choice type");
+
+    const emptyRequest = {
+      state: "choice empty rubric test",
+      questions: [
+        { id: "q-choice-empty-rubric", type: "choice", prompt: "Pick one", options: ["A", "B"], rubric: [] },
+      ],
+    };
+    const emptyParsed = DecisionRequestZodSchema.safeParse(emptyRequest);
+    assert.equal(emptyParsed.success, true, "MCP Zod schema must accept empty rubric array for choice type");
+    assert.doesNotThrow(() => validateRequest(emptyRequest), "shared validateRequest must accept empty rubric for choice type");
+  });
+
+  test("boolean rubric: omitted or empty [] both accepted by Zod and shared validateRequest (non-score rubric must be empty-only)", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const { validateRequest } = await import("../src/index.ts");
+    const omittedRequest = {
+      state: "boolean omitted rubric test",
+      questions: [
+        { id: "q-bool-no-rubric", type: "boolean", prompt: "Yes or no?", options: [] },
+      ],
+    };
+    const omittedParsed = DecisionRequestZodSchema.safeParse(omittedRequest);
+    assert.equal(omittedParsed.success, true, "MCP Zod schema must accept omitted rubric for boolean type");
+    assert.doesNotThrow(() => validateRequest(omittedRequest), "shared validateRequest must accept omitted rubric for boolean type");
+
+    const emptyRequest = {
+      state: "boolean empty rubric test",
+      questions: [
+        { id: "q-bool-empty-rubric", type: "boolean", prompt: "Yes or no?", options: [], rubric: [] },
+      ],
+    };
+    const emptyParsed = DecisionRequestZodSchema.safeParse(emptyRequest);
+    assert.equal(emptyParsed.success, true, "MCP Zod schema must accept empty rubric array for boolean type");
+    assert.doesNotThrow(() => validateRequest(emptyRequest), "shared validateRequest must accept empty rubric for boolean type");
+  });
+
+  test("choice rubric: non-empty arrays (single, 2-item, 3-item, 11-item) all rejected by Zod layer — non-score rubric must be empty or omitted, score-only enforced at schema surface", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const singleRubric = {
+      state: "choice single rubric rejection test",
+      questions: [
+        { id: "q-choice-single", type: "choice", prompt: "Pick", options: ["A", "B"], rubric: ["only-one"] },
+      ],
+    };
+    const singleParsed = DecisionRequestZodSchema.safeParse(singleRubric);
+    assert.equal(
+      singleParsed.success,
+      false,
+      "Zod schema must reject a single-element rubric on choice type (non-score rubric = empty or omitted only; no 2..10 branch)",
+    );
+
+    const twoRubric = {
+      state: "choice two-item rubric rejection test",
+      questions: [
+        { id: "q-choice-two", type: "choice", prompt: "Pick", options: ["A", "B"], rubric: ["r1", "r2"] },
+      ],
+    };
+    const twoParsed = DecisionRequestZodSchema.safeParse(twoRubric);
+    assert.equal(
+      twoParsed.success,
+      false,
+      "Zod schema must reject a 2-element rubric on choice type (previously accepted 2..10 branch is removed; score-only parity with shared validateRequest)",
+    );
+
+    const threeRubric = {
+      state: "choice three-item rubric rejection test",
+      questions: [
+        { id: "q-choice-three", type: "choice", prompt: "Pick", options: ["A", "B"], rubric: ["r1", "r2", "r3"] },
+      ],
+    };
+    const threeParsed = DecisionRequestZodSchema.safeParse(threeRubric);
+    assert.equal(
+      threeParsed.success,
+      false,
+      "Zod schema must reject a 3-element rubric on choice type (advertised schema parity: choice/boolean never carry 2..10 rubric)",
+    );
+
+    const elevenRubric = {
+      state: "choice oversized rubric rejection test",
+      questions: [
+        { id: "q-choice-eleven", type: "choice", prompt: "Pick", options: ["A", "B"], rubric: ["r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11"] },
+      ],
+    };
+    const elevenParsed = DecisionRequestZodSchema.safeParse(elevenRubric);
+    assert.equal(
+      elevenParsed.success,
+      false,
+      "Zod schema must reject an 11-element rubric on choice type (all non-empty non-score rubric arrays are rejected uniformly)",
+    );
+  });
+
+  test("boolean rubric: non-empty arrays (single, 2-item, 3-item, 11-item) all rejected by Zod layer — non-score rubric must be empty or omitted, score-only enforced at schema surface", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const singleRubric = {
+      state: "boolean single rubric rejection test",
+      questions: [
+        { id: "q-bool-single", type: "boolean", prompt: "Is it?", options: [], rubric: ["only-one"] },
+      ],
+    };
+    const singleParsed = DecisionRequestZodSchema.safeParse(singleRubric);
+    assert.equal(
+      singleParsed.success,
+      false,
+      "Zod schema must reject a single-element rubric on boolean type (non-score rubric = empty or omitted only; no 2..10 branch)",
+    );
+
+    const twoRubric = {
+      state: "boolean two-item rubric rejection test",
+      questions: [
+        { id: "q-bool-two", type: "boolean", prompt: "Is it?", options: ["true", "false"], rubric: ["r1", "r2"] },
+      ],
+    };
+    const twoParsed = DecisionRequestZodSchema.safeParse(twoRubric);
+    assert.equal(
+      twoParsed.success,
+      false,
+      "Zod schema must reject a 2-element rubric on boolean type (previously accepted 2..10 branch is removed; score-only parity with shared validateRequest)",
+    );
+
+    const threeRubric = {
+      state: "boolean three-item rubric rejection test",
+      questions: [
+        { id: "q-bool-three", type: "boolean", prompt: "Is it?", options: [], rubric: ["r1", "r2", "r3"] },
+      ],
+    };
+    const threeParsed = DecisionRequestZodSchema.safeParse(threeRubric);
+    assert.equal(
+      threeParsed.success,
+      false,
+      "Zod schema must reject a 3-element rubric on boolean type (advertised schema parity: choice/boolean never carry 2..10 rubric)",
+    );
+
+    const elevenRubric = {
+      state: "boolean oversized rubric rejection test",
+      questions: [
+        { id: "q-bool-eleven", type: "boolean", prompt: "Is it?", options: [], rubric: ["r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11"] },
+      ],
+    };
+    const elevenParsed = DecisionRequestZodSchema.safeParse(elevenRubric);
+    assert.equal(
+      elevenParsed.success,
+      false,
+      "Zod schema must reject an 11-element rubric on boolean type (all non-empty non-score rubric arrays are rejected uniformly)",
+    );
+  });
+
+  test("choice + boolean with non-empty rubric: rejected at tools/call MCP layer via synthetic injected server (end-to-end parity with validateRequest)", async (t) => {
+    void t;
+    const { runStdioMcpServer } = await import("../src/mcp.ts");
+    let backendRan = false;
+    const backend = {
+      backend: "direct",
+      async decide() {
+        backendRan = true;
+        throw new Error("backend must not run for a schema-rejected request");
+      },
+    };
+    const loop = createLoopbackStdio();
+    const ac = new AbortController();
+    const serverPromise = runStdioMcpServer({
+      backend,
+      stdin: loop.serverStdin,
+      stdout: loop.serverStdout,
+      signal: ac.signal,
+    }).catch((e) => e);
+
+    const assertRejectedAtInputSchemaLayer = (resp, label) => {
+      assert.equal(resp.jsonrpc, "2.0", `${label}: response must carry jsonrpc 2.0`);
+      const hasErrorShape =
+        (resp.result && resp.result.content && resp.result.content.length > 0 && resp.result.isError) ||
+        typeof resp.error?.message === "string";
+      assert.ok(hasErrorShape, `${label}: must return an error shape. Got: ${JSON.stringify(resp).slice(0, 240)}`);
+      if (resp.result && resp.result.content && resp.result.content.length > 0 && resp.result.isError) {
+        const raw = resp.result.content[0].text;
+        assert.ok(
+          typeof raw === "string" && !/shared contract validator/.test(raw),
+          `${label}: must NOT be a shared-contract-validator rejection (Zod advertised schema parity would still be broken). Got: ${String(raw).slice(0, 260)}`,
+        );
+        let parsed = null;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          parsed = null;
+        }
+        if (parsed && typeof parsed === "object") {
+          assert.equal(
+            parsed.schema,
+            "vons.mcp.tool.validation/v1",
+            `${label}: handler JSON content must carry exact schema marker vons.mcp.tool.validation/v1. Got keys: ${Object.keys(parsed).join(",")}; error: ${String(parsed.error || "").slice(0, 220)}`,
+          );
+          assert.ok(
+            typeof parsed.error === "string" && /strict schema validation/.test(parsed.error),
+            `${label}: handler JSON error text must contain strict-schema marker. Got: ${String(parsed.error || "").slice(0, 240)}`,
+          );
+        } else {
+          assert.ok(
+            /^Input validation error: Invalid arguments for tool vons_decide: questions\.\d+\.rubric:/.test(String(raw)),
+            `${label}: SDK plain-text gate must exactly match 'Input validation error: Invalid arguments for tool vons_decide: questions.N.rubric: ...'. Got: ${String(raw).slice(0, 320)}`,
+          );
+        }
+      } else if (resp.error && typeof resp.error.message === "string") {
+        assert.equal(
+          resp.error.code,
+          -32602,
+          `${label}: JSON-RPC error must use exact invalid params code -32602. Got code=${String(resp.error.code)}`,
+        );
+        assert.ok(
+          !/shared contract validator/.test(String(resp.error.message)),
+          `${label}: JSON-RPC error must not be shared-contract-validator path. Got: ${String(resp.error.message).slice(0, 240)}`,
+        );
+      }
+      assert.equal(backendRan, false, `${label}: backend must not be invoked for an input-schema-rejected request`);
+    };
+
+    loop.writeLine(
+      mcpRequest(
+        "initialize",
+        {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "mcp-parity-nonempty-rubric", version: "0.1.0" },
+        },
+        201,
+      ),
+    );
+    const initResp = await loop.nextMessage(8000);
+    assert.equal(initResp.id, 201, "initialize response must correlate with request id 201");
+    assert.ok(initResp.result, "initialize result must be present");
+    loop.writeLine(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} }));
+
+    const choiceNonEmpty = {
+      state: "server-layer choice non-empty rubric",
+      questions: [
+        { id: "q-srv-choice-nonempty", type: "choice", prompt: "Pick", options: ["A", "B"], rubric: ["x", "y", "z"] },
+      ],
+    };
+    loop.writeLine(mcpRequest("tools/call", { name: "vons_decide", arguments: choiceNonEmpty }, 202));
+    const callChoiceResp = await loop.nextMessage(8000);
+    assert.equal(callChoiceResp.id, 202, "tools/call for choice non-empty rubric must return a correlated response JSON-RPC id");
+    assertRejectedAtInputSchemaLayer(callChoiceResp, "choice non-empty rubric");
+
+    const booleanNonEmpty = {
+      state: "server-layer boolean non-empty rubric",
+      questions: [
+        { id: "q-srv-bool-nonempty", type: "boolean", prompt: "Is it?", options: ["true", "false"], rubric: ["x", "y"] },
+      ],
+    };
+    loop.writeLine(mcpRequest("tools/call", { name: "vons_decide", arguments: booleanNonEmpty }, 203));
+    const callBoolResp = await loop.nextMessage(8000);
+    assert.equal(callBoolResp.id, 203, "tools/call for boolean non-empty rubric must return a correlated response JSON-RPC id");
+    assertRejectedAtInputSchemaLayer(callBoolResp, "boolean non-empty rubric");
+
+    ac.abort();
+    loop.end();
+    const shutdownOrError = await serverPromise;
+    if (shutdownOrError instanceof Error && !/abort|close|ended|aborted/i.test(shutdownOrError.message)) {
+      throw shutdownOrError;
+    }
+  });
+
+  test("boolean type empty options ([]): accepted, backwards compatible", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const { validateRequest } = await import("../src/index.ts");
+    const request = {
+      state: "empty boolean options test",
+      questions: [
+        { id: "q-bool-empty-opts", type: "boolean", prompt: "Is it true?", options: [] },
+      ],
+    };
+    const parsed = DecisionRequestZodSchema.safeParse(request);
+    assert.equal(parsed.success, true, "MCP Zod schema must accept empty options array for boolean type");
+    assert.doesNotThrow(() => validateRequest(request), "shared validateRequest must accept empty options for boolean type");
+  });
+
+  test("boolean type explicit [\"true\",\"false\"] tuple: still accepted (backwards compat)", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const { validateRequest } = await import("../src/index.ts");
+    const request = {
+      state: "boolean explicit tuple test",
+      questions: [
+        { id: "q-bool-explicit", type: "boolean", prompt: "Is it true?", options: ["true", "false"] },
+      ],
+    };
+    const parsed = DecisionRequestZodSchema.safeParse(request);
+    assert.equal(parsed.success, true, "boolean options [\"true\",\"false\"] tuple must still be accepted");
+    assert.doesNotThrow(() => validateRequest(request), "shared validateRequest must accept explicit boolean tuple");
+  });
+
+  test("boolean type single-element options: rejected by length constraint", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const request = {
+      state: "boolean single options rejection",
+      questions: [
+        { id: "q-bool-single", type: "boolean", prompt: "Bad bool?", options: ["true"] },
+      ],
+    };
+    const parsed = DecisionRequestZodSchema.safeParse(request);
+    assert.equal(
+      parsed.success,
+      false,
+      "boolean options must reject single-element arrays (only [] or [\"true\",\"false\"] are valid)",
+    );
+  });
+
+  test("boolean type wrong-tuple options [\"false\",\"true\"]: rejected (order matters)", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const request = {
+      state: "boolean reversed tuple rejection",
+      questions: [
+        { id: "q-bool-reversed", type: "boolean", prompt: "Reversed?", options: ["false", "true"] },
+      ],
+    };
+    const parsed = DecisionRequestZodSchema.safeParse(request);
+    assert.equal(
+      parsed.success,
+      false,
+      "boolean options must reject reversed [\"false\",\"true\"]; only empty or the exact [\"true\",\"false\"] tuple allowed",
+    );
+  });
+
+  test("boolean type wrong-literal options: rejected", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const request = {
+      state: "boolean wrong literal rejection",
+      questions: [
+        { id: "q-bool-literals", type: "boolean", prompt: "Wrong literals?", options: ["yes", "no"] },
+      ],
+    };
+    const parsed = DecisionRequestZodSchema.safeParse(request);
+    assert.equal(parsed.success, false, "boolean options must reject non-literal [\"yes\",\"no\"] values");
+  });
+
+  test("score type rubric: still requires min(2).max(10) untouched, no empty-array allowed", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const emptyScore = {
+      state: "score empty rubric must fail",
+      questions: [
+        { id: "q-score-empty-rubric", type: "score", prompt: "Rate", options: ["1", "2", "3"], rubric: [] },
+      ],
+    };
+    const parsedEmpty = DecisionRequestZodSchema.safeParse(emptyScore);
+    assert.equal(parsedEmpty.success, false, "score rubric must reject empty array (score rubric is always required, min=2)");
+
+    const validScore = {
+      state: "score valid rubric must pass",
+      questions: [
+        { id: "q-score-valid", type: "score", prompt: "Rate", options: ["1", "2", "3"], rubric: ["poor", "fair", "good"] },
+      ],
+    };
+    const parsedValid = DecisionRequestZodSchema.safeParse(validScore);
+    assert.equal(parsedValid.success, true, "score rubric with 3 valid items must still be accepted");
+  });
+
+  test("request-schema parity: advertised Zod schema and shared validateRequest agree on rubric ownership (non-score empty/omitted ✓; non-score non-empty ✗; score 2..10 ✓; score empty ✗)", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const { validateRequest } = await import("../src/index.ts");
+
+    const choiceOmitted = {
+      state: "parity choice omitted",
+      questions: [{ id: "q-c-om", type: "choice", prompt: "p", options: ["A", "B"] }],
+    };
+    const choiceEmpty = {
+      state: "parity choice empty",
+      questions: [{ id: "q-c-em", type: "choice", prompt: "p", options: ["A", "B"], rubric: [] }],
+    };
+    const choiceNonEmpty = {
+      state: "parity choice nonempty",
+      questions: [{ id: "q-c-ne", type: "choice", prompt: "p", options: ["A", "B"], rubric: ["x", "y", "z"] }],
+    };
+    const boolOmitted = {
+      state: "parity bool omitted",
+      questions: [{ id: "q-b-om", type: "boolean", prompt: "p", options: [] }],
+    };
+    const boolEmpty = {
+      state: "parity bool empty",
+      questions: [{ id: "q-b-em", type: "boolean", prompt: "p", options: ["true", "false"], rubric: [] }],
+    };
+    const boolNonEmpty = {
+      state: "parity bool nonempty",
+      questions: [{ id: "q-b-ne", type: "boolean", prompt: "p", options: [], rubric: ["x", "y"] }],
+    };
+    const scoreValid = {
+      state: "parity score valid",
+      questions: [{ id: "q-s-v", type: "score", prompt: "p", options: ["1", "2", "3"], rubric: ["poor", "fair", "good"] }],
+    };
+    const scoreEmpty = {
+      state: "parity score empty",
+      questions: [{ id: "q-s-e", type: "score", prompt: "p", options: ["1", "2", "3"], rubric: [] }],
+    };
+
+    const passZod = DecisionRequestZodSchema.safeParse(choiceOmitted);
+    assert.equal(passZod.success, true, "choice omitted rubric must pass Zod (advertised schema parity with shared validator)");
+    assert.doesNotThrow(() => validateRequest(choiceOmitted), "choice omitted rubric must also pass shared validateRequest");
+
+    const passZodCE = DecisionRequestZodSchema.safeParse(choiceEmpty);
+    assert.equal(passZodCE.success, true, "choice empty rubric must pass Zod (advertised schema parity)");
+    assert.doesNotThrow(() => validateRequest(choiceEmpty), "choice empty rubric must also pass shared validateRequest");
+
+    const failZodCNE = DecisionRequestZodSchema.safeParse(choiceNonEmpty);
+    assert.equal(failZodCNE.success, false, "choice non-empty rubric must FAIL Zod (advertised schema parity: no 2..10 branch on non-score; no mismatch vs shared validator)");
+    // Note: shared validator also rejects non-empty non-score rubric; parity is Zod fail-closed before shared validator even runs
+
+    const passZodBO = DecisionRequestZodSchema.safeParse(boolOmitted);
+    assert.equal(passZodBO.success, true, "boolean omitted rubric must pass Zod (advertised schema parity)");
+    assert.doesNotThrow(() => validateRequest(boolOmitted), "boolean omitted rubric must also pass shared validateRequest");
+
+    const passZodBE = DecisionRequestZodSchema.safeParse(boolEmpty);
+    assert.equal(passZodBE.success, true, "boolean empty rubric must pass Zod (advertised schema parity)");
+    assert.doesNotThrow(() => validateRequest(boolEmpty), "boolean empty rubric must also pass shared validateRequest");
+
+    const failZodBNE = DecisionRequestZodSchema.safeParse(boolNonEmpty);
+    assert.equal(failZodBNE.success, false, "boolean non-empty rubric must FAIL Zod (advertised schema parity: no 2..10 branch on non-score; no mismatch vs shared validator)");
+
+    const passZodSV = DecisionRequestZodSchema.safeParse(scoreValid);
+    assert.equal(passZodSV.success, true, "score valid 3-item rubric must still pass Zod untouched");
+    assert.doesNotThrow(() => validateRequest(scoreValid), "score valid 3-item rubric must also pass shared validateRequest");
+
+    const failZodSE = DecisionRequestZodSchema.safeParse(scoreEmpty);
+    assert.equal(failZodSE.success, false, "score empty rubric must still FAIL Zod untouched (score rubric required, 2..10)");
+  });
+
+  test("whitespace-only state string: rejected by Zod refine (no trim-transform applied to valid values)", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const blankState = {
+      state: "    ",
+      questions: [{ id: "q-ws-state", type: "choice", prompt: "OK", options: ["A", "B"] }],
+    };
+    const blankParsed = DecisionRequestZodSchema.safeParse(blankState);
+    assert.equal(blankParsed.success, false, "all-spaces state string must be rejected by Zod refine");
+    const validStateWithSpaces = {
+      state: "  session:user=42; room=lobby  ",
+      questions: [{ id: "q-ws-state-ok", type: "choice", prompt: "OK", options: ["A", "B"] }],
+    };
+    const okParsed = DecisionRequestZodSchema.safeParse(validStateWithSpaces);
+    assert.equal(okParsed.success, true, "state with non-blank surrounding spaces must still be accepted");
+    assert.equal(
+      okParsed.success && okParsed.data.state,
+      "  session:user=42; room=lobby  ",
+      "accepted state string must preserve surrounding spaces (no trim-transform applied; refine rejects only 100%-blank)",
+    );
+  });
+
+  test("whitespace-only prompt string: rejected by Zod refine (valid prompts keep surrounding spaces)", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const blankPrompt = {
+      state: "S",
+      questions: [{ id: "q-ws-prompt-blank", type: "choice", prompt: " \t \n  ", options: ["A", "B"] }],
+    };
+    const blankParsed = DecisionRequestZodSchema.safeParse(blankPrompt);
+    assert.equal(blankParsed.success, false, "all-whitespace prompt (spaces+tabs+newlines) must be rejected by Zod refine");
+    const validPromptWithSpaces = {
+      state: "S",
+      questions: [{ id: "q-ws-prompt-ok", type: "choice", prompt: "  Please choose A or B carefully.  ", options: ["A", "B"] }],
+    };
+    const okParsed = DecisionRequestZodSchema.safeParse(validPromptWithSpaces);
+    assert.equal(okParsed.success, true, "prompt with leading/trailing spaces around real content must be accepted");
+    assert.equal(
+      okParsed.success && okParsed.data.questions[0].prompt,
+      "  Please choose A or B carefully.  ",
+      "accepted prompt string must keep original surrounding spaces (no trim-transform)",
+    );
+  });
+
+  test("whitespace-only choice option strings: rejected by Zod refine; valid options preserve surrounding spaces", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const blankFirstOption = {
+      state: "S",
+      questions: [{ id: "q-ws-opt-blank", type: "choice", prompt: "OK", options: ["  ", "B"] }],
+    };
+    const blankParsed = DecisionRequestZodSchema.safeParse(blankFirstOption);
+    assert.equal(blankParsed.success, false, "whitespace-only first choice option must be rejected by Zod refine");
+    const blankSecondOption = {
+      state: "S",
+      questions: [{ id: "q-ws-opt-blank2", type: "choice", prompt: "OK", options: ["A", "\t"] }],
+    };
+    const blank2Parsed = DecisionRequestZodSchema.safeParse(blankSecondOption);
+    assert.equal(blank2Parsed.success, false, "whitespace-only second choice option (tab-only) must be rejected by Zod refine");
+    const validOptionsWithSpaces = {
+      state: "S",
+      questions: [{ id: "q-ws-opt-ok", type: "choice", prompt: "OK", options: ["  Yes, proceed  ", "  Cancel  "] }],
+    };
+    const okParsed = DecisionRequestZodSchema.safeParse(validOptionsWithSpaces);
+    assert.equal(okParsed.success, true, "choice options with surrounding spaces around real content must be accepted");
+    assert.deepEqual(
+      okParsed.success && okParsed.data.questions[0].options,
+      ["  Yes, proceed  ", "  Cancel  "],
+      "accepted choice option strings must preserve original surrounding spaces (no trim-transform applied)",
+    );
+  });
+
+  test("whitespace-only score option strings: rejected by Zod refine; valid score options preserve spaces", async (t) => {
+    void t;
+    const { DecisionRequestZodSchema } = await import("../src/mcp.ts");
+    const blankOption = {
+      state: "S",
+      questions: [{ id: "q-ws-score-blank", type: "score", prompt: "Rate quality", options: ["1", "   ", "3"], rubric: ["poor", "fair", "good"] }],
+    };
+    const blankParsed = DecisionRequestZodSchema.safeParse(blankOption);
+    assert.equal(blankParsed.success, false, "whitespace-only score option must be rejected by Zod refine");
+    const validOptionsWithSpaces = {
+      state: "S",
+      questions: [{ id: "q-ws-score-ok", type: "score", prompt: "Rate quality", options: [" Poor (1) ", " Fair (2) ", " Good (3) "], rubric: ["no evidence", "partial evidence", "strong evidence"] }],
+    };
+    const okParsed = DecisionRequestZodSchema.safeParse(validOptionsWithSpaces);
+    assert.equal(okParsed.success, true, "score options with surrounding spaces around labels must be accepted");
+    assert.deepEqual(
+      okParsed.success && okParsed.data.questions[0].options,
+      [" Poor (1) ", " Fair (2) ", " Good (3) "],
+      "accepted score option strings must keep original surrounding spaces (no trim-transform)",
+    );
+  });
+});

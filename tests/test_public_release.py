@@ -16,6 +16,7 @@ _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 inspect_file = _MODULE.inspect_file
 prepare = _MODULE.prepare
+huggingface_frontmatter = _MODULE.huggingface_frontmatter
 
 
 def source_tree(tmp_path: Path) -> Path:
@@ -24,7 +25,8 @@ def source_tree(tmp_path: Path) -> Path:
     (tmp_path / "docs").mkdir()
     (tmp_path / "README.md").write_text("# Source\n")
     (tmp_path / "docs/HUGGING_FACE.md").write_text(
-        "# Hub source preview\n[Model card](../docs/MODEL_CARD.md)\n"
+        "---\nlicense: cc-by-4.0\ntags:\n  - vons\n---\n"
+        "# Supplemental Hub notes\n[Model card](../docs/MODEL_CARD.md)\n"
     )
     (tmp_path / ".gitignore").write_text("data/\nreleases/\n.env\n")
     spec = {"license_status": "pending", "files": [
@@ -34,7 +36,9 @@ def source_tree(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_export_omits_private_data_and_replaces_hub_card(tmp_path: Path) -> None:
+def test_huggingface_export_keeps_github_readme_and_prepends_card_metadata(
+    tmp_path: Path,
+) -> None:
     root = source_tree(tmp_path)
     (root / "data").mkdir()
     (root / "data/secret.jsonl").write_text("private row")
@@ -42,7 +46,7 @@ def test_export_omits_private_data_and_replaces_hub_card(tmp_path: Path) -> None
     output = root / "releases/hub"
     manifest = prepare(root, output, "huggingface")
     assert (output / "README.md").read_text() == (
-        "# Hub source preview\n[Model card](docs/MODEL_CARD.md)\n"
+        "---\nlicense: cc-by-4.0\ntags:\n  - vons\n---\n\n# Source\n"
     )
     assert (output / "docs/HUGGING_FACE.md").read_text() == (
         root / "docs/HUGGING_FACE.md"
@@ -54,6 +58,12 @@ def test_export_omits_private_data_and_replaces_hub_card(tmp_path: Path) -> None
     assert (root / "data/secret.jsonl").read_text() == "private row"
     with pytest.raises(ValueError, match="overwrite"):
         prepare(root, output, "huggingface")
+
+
+@pytest.mark.parametrize("card", [b"# No metadata\n", b"---\nlicense: other\n"])
+def test_huggingface_card_requires_complete_frontmatter(card: bytes) -> None:
+    with pytest.raises(ValueError, match="Hugging Face card metadata"):
+        huggingface_frontmatter(card)
 
 
 def test_unreviewed_and_force_tracked_files_block_export(tmp_path: Path) -> None:

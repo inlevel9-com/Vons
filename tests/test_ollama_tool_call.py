@@ -7,14 +7,18 @@ Mind2Web rows, no real Ollama daemon is contacted.
 
 from __future__ import annotations
 
+import io
 import json
+import math
 import tempfile
 import unittest
 from collections.abc import Mapping
+from http.client import HTTPResponse
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
+from urllib.request import ProxyHandler, Request
 
 from vons.contract import (
     Backend,
@@ -25,8 +29,10 @@ from vons.contract import (
     ResponseStatus,
 )
 from vons.ollama import (
+    OllamaClient,
     OllamaToolCallError,
     OllamaToolCallHost,
+    _LoopbackRedirectHandler,
     _validate_loopback_host,
     tool_call_result_to_mapping,
 )
@@ -78,9 +84,37 @@ _VALID_REQUEST = {
             "options": ["call", "clarify", "confirm", "refuse"],
         }
     ],
-    "backend": "direct",
-    "seed": 7,
 }
+
+
+class _MemorySocket:
+    def __init__(self, wire_response: bytes) -> None:
+        self._buffer = io.BytesIO(wire_response)
+
+    def makefile(self, mode: str) -> io.BytesIO:
+        return self._buffer
+
+    def close(self) -> None:
+        self._buffer.close()
+
+
+class _CountingHTTPResponse(HTTPResponse):
+    def __init__(self, wire_response: bytes) -> None:
+        super().__init__(_MemorySocket(wire_response), method="POST")
+        self.read_called = False
+        self.begin()
+
+    def read(self, *args: Any, **kwargs: Any) -> bytes:
+        self.read_called = True
+        return super().read(*args, **kwargs)
+
+
+def _http_response(status: int, body: bytes) -> _CountingHTTPResponse:
+    reason = {200: "OK", 201: "Created", 302: "Found"}.get(status, "Error")
+    wire = (
+        f"HTTP/1.1 {status} {reason}\r\nContent-Length: {len(body)}\r\n\r\n".encode("ascii") + body
+    )
+    return _CountingHTTPResponse(wire)
 
 
 class _SpyBackend(DecisionBackend):
@@ -131,6 +165,49 @@ class LoopbackValidationTests(unittest.TestCase):
                 _validate_loopback_host(url)  # type: ignore[arg-type]
 
 
+class OllamaClientBoundaryTests(unittest.TestCase):
+    def test_client_rejects_remote_host_and_non_root_path(self) -> None:
+        for host in ("http://192.168.1.20:11434", "http://ollama.internal:11434"):
+            with self.subTest(host=host), self.assertRaisesRegex(ValueError, "loopback"):
+                OllamaClient(host)
+        with self.assertRaisesRegex(ValueError, "must not include a path"):
+            OllamaClient("http://localhost:11434/api")
+
+    def test_client_disables_ambient_proxy_and_installs_redirect_guard(self) -> None:
+        with patch("urllib.request.getproxies", return_value={"http": "http://proxy.invalid"}):
+            client = OllamaClient()
+            host = OllamaToolCallHost("http://127.0.0.1:11434", SyntheticAbstainBackend())
+
+        self.assertFalse(any(isinstance(item, ProxyHandler) for item in client._opener.handlers))
+        self.assertFalse(any(isinstance(item, ProxyHandler) for item in host._opener.handlers))
+        self.assertTrue(
+            any(isinstance(item, _LoopbackRedirectHandler) for item in client._opener.handlers)
+        )
+        self.assertTrue(
+            any(isinstance(item, _LoopbackRedirectHandler) for item in host._opener.handlers)
+        )
+
+    def test_chat_result_survives_optional_version_metadata_failure(self) -> None:
+        client = OllamaClient()
+
+        def request(path: str, _payload: Mapping[str, Any] | None = None) -> Any:
+            if path == "/api/chat":
+                return {"message": {"content": '{"choice":"call"}'}}
+            if path == "/api/show":
+                return {"digest": "a" * 64, "details": {}, "capabilities": []}
+            if path == "/api/version":
+                return {"version": 12}
+            raise AssertionError(f"unexpected endpoint {path}")
+
+        client._request = request  # type: ignore[method-assign]
+        record = client.chat_json("synthetic", system="system", prompt="prompt", schema={})
+
+        self.assertIsNone(record.error)
+        self.assertEqual(record.response, '{"choice":"call"}')
+        self.assertIsNone(record.metadata["ollama_version"])
+        self.assertEqual(record.metadata["ollama_version_error"], "TypeError")
+
+
 class HostInitTests(unittest.TestCase):
     def test_requires_loopback_host(self) -> None:
         backend = SyntheticAbstainBackend()
@@ -147,8 +224,101 @@ class HostInitTests(unittest.TestCase):
         self.assertEqual(host.host, "http://127.0.0.1:11434")
         self.assertIs(host.backend, backend)
 
+    def test_finite_positive_timeout_accepted(self) -> None:
+        backend = SyntheticAbstainBackend()
+        for value in (1.0, 30, 120.5, 2**31 - 1):
+            host = OllamaToolCallHost("http://127.0.0.1:11434", backend, timeout=value)
+            self.assertEqual(host.timeout, value)
+
+    def test_boolean_timeout_rejected(self) -> None:
+        backend = SyntheticAbstainBackend()
+        for value in (True, False):
+            with self.assertRaises(OllamaToolCallError):
+                OllamaToolCallHost("http://127.0.0.1:11434", backend, timeout=value)  # type: ignore[arg-type]
+
+    def test_non_numeric_timeout_rejected(self) -> None:
+        backend = SyntheticAbstainBackend()
+        for value in ("120", None, [], {}, b"120"):
+            with self.assertRaises(OllamaToolCallError):
+                OllamaToolCallHost("http://127.0.0.1:11434", backend, timeout=value)  # type: ignore[arg-type]
+
+    def test_non_positive_timeout_rejected(self) -> None:
+        backend = SyntheticAbstainBackend()
+        for value in (0, -1, -0.5, -1e100):
+            with self.assertRaises(OllamaToolCallError):
+                OllamaToolCallHost("http://127.0.0.1:11434", backend, timeout=value)
+
+    def test_integer_timeout_too_large_for_finite_float_rejected(self) -> None:
+        backend = SyntheticAbstainBackend()
+        with self.assertRaises(OllamaToolCallError):
+            OllamaToolCallHost("http://127.0.0.1:11434", backend, timeout=10**1000)
+
+    def test_nan_timeout_rejected(self) -> None:
+        backend = SyntheticAbstainBackend()
+        with self.assertRaises(OllamaToolCallError):
+            OllamaToolCallHost("http://127.0.0.1:11434", backend, timeout=float("nan"))
+        with self.assertRaises(OllamaToolCallError):
+            OllamaToolCallHost("http://127.0.0.1:11434", backend, timeout=math.nan)
+
+    def test_positive_infinity_timeout_rejected(self) -> None:
+        backend = SyntheticAbstainBackend()
+        with self.assertRaises(OllamaToolCallError):
+            OllamaToolCallHost("http://127.0.0.1:11434", backend, timeout=float("inf"))
+        with self.assertRaises(OllamaToolCallError):
+            OllamaToolCallHost("http://127.0.0.1:11434", backend, timeout=math.inf)
+
+    def test_negative_infinity_timeout_rejected(self) -> None:
+        backend = SyntheticAbstainBackend()
+        with self.assertRaises(OllamaToolCallError):
+            OllamaToolCallHost("http://127.0.0.1:11434", backend, timeout=float("-inf"))
+        with self.assertRaises(OllamaToolCallError):
+            OllamaToolCallHost("http://127.0.0.1:11434", backend, timeout=-math.inf)
+
 
 class ToolCallRoundTripTests(unittest.TestCase):
+    def test_default_thinking_control_is_omitted_from_request(self) -> None:
+        backend = _SpyBackend()
+        host = OllamaToolCallHost("http://127.0.0.1:11434", backend)
+        _patch_post(host, _vons_decide_tool_call(_VALID_REQUEST))
+
+        result = host.chat_with_tools("synthetic-model", [{"role": "user", "content": "pick one"}])
+
+        self.assertIsNone(result.error)
+        request_payload = host._post.call_args.args[1]
+        self.assertNotIn("think", request_payload)
+
+    def test_explicit_thinking_control_is_forwarded(self) -> None:
+        for think in (False, True):
+            with self.subTest(think=think):
+                backend = _SpyBackend()
+                host = OllamaToolCallHost("http://127.0.0.1:11434", backend)
+                _patch_post(host, _vons_decide_tool_call(_VALID_REQUEST))
+
+                result = host.chat_with_tools(
+                    "synthetic-model", [{"role": "user", "content": "pick one"}], think=think
+                )
+
+                self.assertIsNone(result.error)
+                request_payload = host._post.call_args.args[1]
+                self.assertIs(request_payload["think"], think)
+
+    def test_non_boolean_thinking_control_is_rejected_before_post(self) -> None:
+        for think in (0, 1, "false", [], {}):
+            with self.subTest(think=think):
+                backend = _SpyBackend()
+                host = OllamaToolCallHost("http://127.0.0.1:11434", backend)
+                host._post = MagicMock()  # type: ignore[method-assign]
+
+                result = host.chat_with_tools(
+                    "synthetic-model",
+                    [{"role": "user", "content": "pick one"}],
+                    think=think,  # type: ignore[arg-type]
+                )
+
+                self.assertIsNotNone(result.error)
+                host._post.assert_not_called()
+                self.assertEqual(backend.calls, [])
+
     def test_successful_tool_call_invokes_backend(self) -> None:
         backend = _SpyBackend()
         host = OllamaToolCallHost("http://127.0.0.1:11434", backend)
@@ -169,6 +339,42 @@ class ToolCallRoundTripTests(unittest.TestCase):
         self.assertEqual(request.seed, 7)
         # Reconciliation: backend answer IDs match request IDs exactly, positionally
         self.assertEqual(result.backend_result.answers[0].question_id, "q-next")
+
+    def test_backend_and_seed_are_host_owned(self) -> None:
+        backend = _SpyBackend()
+        host = OllamaToolCallHost("http://127.0.0.1:11434", backend)
+        _patch_post(host, _vons_decide_tool_call(_VALID_REQUEST))
+
+        result = host.chat_with_tools(
+            "synthetic-model", [{"role": "user", "content": "pick one"}], seed=42
+        )
+
+        self.assertIsNone(result.error)
+        request_payload = host._post.call_args.args[1]
+        properties = request_payload["tools"][0]["function"]["parameters"]["properties"]
+        self.assertNotIn("backend", properties)
+        self.assertNotIn("seed", properties)
+        self.assertEqual(request_payload["options"]["seed"], 42)
+        self.assertEqual(backend.calls[0].backend, Backend.DIRECT)
+        self.assertEqual(backend.calls[0].seed, 42)
+
+    def test_model_cannot_supply_backend_or_seed(self) -> None:
+        for injected in (
+            {**_VALID_REQUEST, "backend": "diffusion"},
+            {**_VALID_REQUEST, "seed": 999},
+        ):
+            with self.subTest(injected_key=set(injected) - set(_VALID_REQUEST)):
+                backend = _SpyBackend()
+                host = OllamaToolCallHost("http://127.0.0.1:11434", backend)
+                _patch_post(host, _vons_decide_tool_call(injected))
+
+                result = host.chat_with_tools(
+                    "synthetic-model", [{"role": "user", "content": "pick one"}]
+                )
+
+                self.assertIsNotNone(result.error)
+                self.assertEqual(result.error_id, result.error.error_id)
+                self.assertEqual(backend.calls, [])
 
     def test_accepts_observed_ollama_tool_call_shape(self) -> None:
         backend = _SpyBackend()
@@ -299,6 +505,7 @@ class ToolCallRoundTripTests(unittest.TestCase):
         result = host.chat_with_tools("synthetic-model", [{"role": "user", "content": "x"}])
 
         self.assertIsNotNone(result.error)
+        self.assertEqual(result.error_id, result.error.error_id)
         self.assertEqual(len(backend.calls), 0)
 
     def test_unknown_question_argument_blocks_backend_call(self) -> None:
@@ -540,6 +747,63 @@ class RedirectEscapeTests(unittest.TestCase):
         with self.assertRaises(OllamaToolCallError):
             _validate_loopback_host("https://remote.internal:8443/api/chat")
 
+    def test_redirect_handler_rejects_remote_location_before_following(self) -> None:
+        handler = _LoopbackRedirectHandler()
+        request = Request("http://127.0.0.1:11434/api/chat")
+
+        with self.assertRaises(OllamaToolCallError):
+            handler.http_error_302(
+                request,
+                io.BytesIO(),
+                302,
+                "Found",
+                {"Location": "http://192.168.1.7:11434/api/chat"},
+            )
+
+
+class HttpPostBoundaryTests(unittest.TestCase):
+    def test_rejects_non_200_status_before_reading_body(self) -> None:
+        host = OllamaToolCallHost("http://127.0.0.1:11434", SyntheticAbstainBackend())
+        response = _http_response(201, b"not json")
+
+        with (
+            patch.object(host._opener, "open", return_value=response),
+            self.assertRaises(OllamaToolCallError),
+        ):
+            host._post("/api/chat", {"model": "synthetic"})
+
+        self.assertFalse(response.read_called)
+
+    def test_accepts_synthetic_200_response(self) -> None:
+        host = OllamaToolCallHost("http://127.0.0.1:11434", SyntheticAbstainBackend())
+        response = _http_response(200, b'{"message":{"content":"ok"}}')
+
+        with patch.object(host._opener, "open", return_value=response):
+            parsed = host._post("/api/chat", {"model": "synthetic"})
+
+        self.assertEqual(parsed, {"message": {"content": "ok"}})
+        self.assertTrue(response.read_called)
+
+    def test_rejects_oversized_response_body(self) -> None:
+        host = OllamaToolCallHost("http://127.0.0.1:11434", SyntheticAbstainBackend())
+        response = _http_response(200, b" " * (524_288 + 1))
+
+        with (
+            patch.object(host._opener, "open", return_value=response),
+            self.assertRaises(OllamaToolCallError),
+        ):
+            host._post("/api/chat", {"model": "synthetic"})
+
+    def test_rejects_duplicate_json_keys(self) -> None:
+        host = OllamaToolCallHost("http://127.0.0.1:11434", SyntheticAbstainBackend())
+        response = _http_response(200, b'{"message":{},"message":{}}')
+
+        with (
+            patch.object(host._opener, "open", return_value=response),
+            self.assertRaises(OllamaToolCallError),
+        ):
+            host._post("/api/chat", {"model": "synthetic"})
+
 
 class SyntheticBackendContractTests(unittest.TestCase):
     def test_synthetic_abstain_requires_reason(self) -> None:
@@ -683,7 +947,9 @@ class OnnxRuntimeExecutionTests(unittest.TestCase):
 
     def test_executes_diffusion_session_with_seeded_noise(self) -> None:
         backend, session = _runtime_backend(Backend.DIFFUSION)
-        request = DecisionRequest.from_mapping({**_VALID_REQUEST, "backend": "diffusion"})
+        request = DecisionRequest.from_mapping(
+            {**_VALID_REQUEST, "backend": "diffusion", "seed": 7}
+        )
 
         first = backend.decide(request)
         second = backend.decide(request)
@@ -783,6 +1049,104 @@ class CLISmokeTests(unittest.TestCase):
         self.assertEqual(args.command, "ollama-tool-call")
         self.assertEqual(args.model, "qwen3.8:27b-mlx")
         self.assertEqual(args.synthetic, "abstain")
+        self.assertIsNone(args.think)
+
+    def test_cli_parser_exposes_both_thinking_modes(self) -> None:
+        from vons.cli import _parser
+
+        parser = _parser()
+        common = [
+            "ollama-tool-call",
+            "--model",
+            "qwen3.8:27b-mlx",
+            "--synthetic",
+            "abstain",
+            "--input",
+            "ignored.json",
+        ]
+
+        self.assertIs(parser.parse_args([*common, "--think"]).think, True)
+        self.assertIs(parser.parse_args([*common, "--no-think"]).think, False)
+
+    def test_cli_forwards_thinking_override_to_host(self) -> None:
+        from vons.cli import main as cli_main
+
+        with tempfile.TemporaryDirectory() as td:
+            input_path = Path(td) / "input.json"
+            input_path.write_text(
+                json.dumps({"messages": [{"role": "user", "content": "synthetic"}]}),
+                encoding="utf-8",
+            )
+            for option, expected in (("--think", True), ("--no-think", False)):
+                with self.subTest(option=option):
+                    host = MagicMock()
+                    host.chat_with_tools.return_value = SimpleNamespace(error=None)
+                    with (
+                        patch("vons.cli.OllamaToolCallHost", return_value=host),
+                        patch("vons.cli.tool_call_result_to_mapping", return_value={}),
+                        patch("builtins.print"),
+                    ):
+                        rc = cli_main(
+                            [
+                                "ollama-tool-call",
+                                "--model",
+                                "synthetic-model",
+                                "--synthetic",
+                                "abstain",
+                                "--input",
+                                str(input_path),
+                                option,
+                            ]
+                        )
+
+                    self.assertEqual(rc, 0)
+                    host.chat_with_tools.assert_called_once()
+                    self.assertIs(host.chat_with_tools.call_args.kwargs["think"], expected)
+
+    def test_cli_runtime_tool_call_error_has_distinct_exit_code(self) -> None:
+        from vons.cli import main as cli_main
+
+        with tempfile.TemporaryDirectory() as td:
+            input_path = Path(td) / "input.json"
+            input_path.write_text(
+                json.dumps({"messages": [{"role": "user", "content": "synthetic"}]}),
+                encoding="utf-8",
+            )
+            host = MagicMock()
+            host.chat_with_tools.return_value = SimpleNamespace(error=OllamaToolCallError())
+            with (
+                patch("vons.cli.OllamaToolCallHost", return_value=host),
+                patch("vons.cli.tool_call_result_to_mapping", return_value={}),
+                patch("builtins.print"),
+            ):
+                rc = cli_main(
+                    [
+                        "ollama-tool-call",
+                        "--model",
+                        "synthetic-model",
+                        "--synthetic",
+                        "abstain",
+                        "--input",
+                        str(input_path),
+                    ]
+                )
+
+        self.assertEqual(rc, 18)
+        self.assertNotEqual(rc, 17)
+
+    def test_cli_rejects_non_loopback_ollama_check_host(self) -> None:
+        from vons.cli import main as cli_main
+
+        with (
+            patch("vons.cli.OllamaClient", side_effect=ValueError("non-loopback")) as factory,
+            patch("sys.stderr"),
+        ):
+            rc = cli_main(
+                ["ollama-check", "--models", "synthetic", "--host", "http://192.0.2.4:11434"]
+            )
+
+        self.assertEqual(rc, 5)
+        factory.assert_called_once_with("http://192.0.2.4:11434")
 
     def test_cli_requires_backend_flag(self) -> None:
         from vons.cli import main as cli_main
@@ -833,7 +1197,7 @@ class CLISmokeTests(unittest.TestCase):
             with self.assertRaises(TypeError):
                 _read_tool_call_input(path)
 
-    def test_cli_runtime_dependency_preflight_happens_before_host(self) -> None:
+    def test_cli_backend_preflight_codes_are_distinct_and_happen_before_host(self) -> None:
         from vons.cli import main as cli_main
 
         with tempfile.TemporaryDirectory() as td:
@@ -862,29 +1226,30 @@ class CLISmokeTests(unittest.TestCase):
                 },
                 model_id="a" * 64,
             )
-            with (
-                patch("vons.cli.VerifiedBundle.load", return_value=bundle),
-                patch.object(
-                    OnnxRuntimeBackend,
-                    "prepare",
-                    side_effect=OnnxRuntimeUnavailableError("missing synthetic dependency"),
-                ),
-                patch("vons.cli.OllamaToolCallHost") as host_factory,
+            for error, expected_code in (
+                (OnnxRuntimeUnavailableError("missing synthetic dependency"), 16),
+                (OnnxRuntimeError("invalid synthetic backend"), 17),
             ):
-                rc = cli_main(
-                    [
-                        "ollama-tool-call",
-                        "--model",
-                        "synthetic",
-                        "--bundle",
-                        td,
-                        "--input",
-                        str(input_path),
-                    ]
-                )
+                with self.subTest(expected_code=expected_code):
+                    with (
+                        patch("vons.cli.VerifiedBundle.load", return_value=bundle),
+                        patch.object(OnnxRuntimeBackend, "prepare", side_effect=error),
+                        patch("vons.cli.OllamaToolCallHost") as host_factory,
+                    ):
+                        rc = cli_main(
+                            [
+                                "ollama-tool-call",
+                                "--model",
+                                "synthetic",
+                                "--bundle",
+                                td,
+                                "--input",
+                                str(input_path),
+                            ]
+                        )
 
-        self.assertEqual(rc, 16)
-        host_factory.assert_not_called()
+                    self.assertEqual(rc, expected_code)
+                    host_factory.assert_not_called()
 
 
 if __name__ == "__main__":

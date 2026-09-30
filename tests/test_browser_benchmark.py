@@ -156,6 +156,85 @@ class BrowserBenchmarkTests(unittest.TestCase):
         self.assertFalse(result["complete"])
         self.assertTrue(result["incomplete_reasons"])
 
+    def test_recovered_partial_report_requires_explicit_incomplete_mode(self) -> None:
+        report = {
+            "schema": "vons.browser-benchmark/v1",
+            "sessions": 2,
+            "warmup_excluded_per_session": 1,
+            "repeats_per_session": 2,
+            "run_id": "run-1",
+            "backend": "direct",
+            "cases": 1,
+            "requested_provider": "wasm",
+            "environment": {"user_agent": "test", "cross_origin_isolated": False},
+            "runtime_info": None,
+            "execution_provider_evidence": "test evidence",
+            "session_records": [{"session_start": 1, "load_ms": 5.0, "status": "ok"}],
+            "samples": [_sample(0)],
+            "capture": {"recovered": True, "recovery_complete": False, "saved_state": "pagehide"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "recovered-partial.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "incomplete browser benchmark"):
+                benchmark_tool.verify_report(path)
+            result = benchmark_tool.verify_report(path, allow_incomplete=True)
+
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["sample_rows"], 1)
+        self.assertTrue(result["incomplete_reasons"])
+
+    def test_recovered_complete_report_without_page_summary_is_valid(self) -> None:
+        report = {
+            "schema": "vons.browser-benchmark/v1",
+            "sessions": 1,
+            "warmup_excluded_per_session": 1,
+            "repeats_per_session": 2,
+            "run_id": "run-1",
+            "backend": "direct",
+            "cases": 1,
+            "requested_provider": "wasm",
+            "environment": {"user_agent": "test", "cross_origin_isolated": False},
+            "runtime_info": None,
+            "execution_provider_evidence": "test evidence",
+            "session_records": [{"session_start": 1, "load_ms": 5.0, "status": "ok"}],
+            "samples": [_sample(0), _sample(1)],
+            "capture": {"recovered": True, "recovery_complete": True, "saved_state": "completed"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "recovered-complete.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            result = benchmark_tool.verify_report(path)
+
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["sample_rows"], 2)
+        self.assertEqual(result["successful_samples"], 2)
+
+    def test_strict_verifier_rejects_recovery_flag_that_claims_missing_samples_complete(
+        self,
+    ) -> None:
+        report = {
+            "schema": "vons.browser-benchmark/v1",
+            "sessions": 1,
+            "warmup_excluded_per_session": 1,
+            "repeats_per_session": 2,
+            "run_id": "run-1",
+            "backend": "direct",
+            "cases": 1,
+            "requested_provider": "wasm",
+            "environment": {"user_agent": "test", "cross_origin_isolated": False},
+            "runtime_info": None,
+            "execution_provider_evidence": "test evidence",
+            "session_records": [{"session_start": 1, "load_ms": 5.0, "status": "ok"}],
+            "samples": [_sample(0)],
+            "capture": {"recovered": True, "recovery_complete": True, "saved_state": "completed"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "recovered-contradiction.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "incomplete browser benchmark"):
+                benchmark_tool.verify_report(path)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/status-research_preview-8e9aaf?style=flat-square&amp;labelColor=252525" alt="Research preview">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-community%20%2F%20commercial-c5ff7a?style=flat-square&amp;labelColor=252525" alt="Noncommercial community use; commercial agreement required"></a>
   <img src="https://img.shields.io/badge/python-%E2%89%A53.10-3776ab?style=flat-square&amp;labelColor=252525" alt="Python 3.10 or later">
-  <img src="https://img.shields.io/badge/node-%E2%89%A522-68a063?style=flat-square&amp;labelColor=252525" alt="Node 22 or later">
+  <img src="https://img.shields.io/badge/node-%E2%89%A522.6-68a063?style=flat-square&amp;labelColor=252525" alt="Node 22.6 or later">
 </p>
 <h3 align="center">Plan globally. Decide locally. Keep the host in control.</h3>
 <p align="center">
@@ -257,6 +257,16 @@ integration requires a separately hosted, stable HTTPS MCP endpoint. See
 OpenAI's [MCP connection guide](https://developers.openai.com/api/docs/guides/agents-api/tools/mcp)
 for the distinction between local stdio, session-environment, and OpenAI-hosted
 connections.
+
+## OpenAI Agents SDK (local Vons MCP)
+
+The [Python example](examples/openai_agents_vons_stdio.py) lets an OpenAI
+Agents SDK agent call Vons through a local stdio MCP process. The example
+allows only `vons_decide`, keeps the Vons ONNX bundle local, and disables
+Agents SDK tracing. The user prompt, MCP arguments, and tool result are still
+sent to the configured OpenAI API and may incur API charges. This is API/SDK
+integration; it is not a tested ChatGPT web or desktop connection. See the
+[OpenAI Agents SDK guide](OPENAI_AGENTS_SDK.md) for setup instructions.
 
 ## Research workflow
 

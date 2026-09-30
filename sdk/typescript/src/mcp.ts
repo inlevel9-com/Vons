@@ -15,6 +15,7 @@ import {
   type DecisionResponse,
   validateRequest,
   validateResponse,
+  validateResponseForRequest,
 } from "./index.ts";
 import type { BundleManifest } from "./onnx.ts";
 
@@ -23,41 +24,42 @@ const EXPECTED_BUNDLE_SCHEMA = "vons.bundle.manifest/v1";
 const MANIFEST_RESOURCE_URI = "vons://bundle/manifest/metadata";
 const MANIFEST_RESOURCE_NAME = "bundle-manifest-metadata";
 
+const NonBlankZodString = z.string().regex(/\S/, {
+  message: "value must contain at least one non-whitespace character",
+});
+
 const QuestionFields = {
   id: z.string().min(1),
-  prompt: z.string().min(1),
+  prompt: NonBlankZodString,
 };
-const NonScoreRubricZodSchema = z.union([
-  z.tuple([]),
-  z.array(z.string()).min(2).max(10),
-]);
+const NonScoreEmptyRubricZodSchema = z.array(z.string()).length(0);
 const QuestionZodSchema = z.discriminatedUnion("type", [
   z.strictObject({
     ...QuestionFields,
     type: z.literal("choice"),
-    options: z.array(z.string().min(1)).min(2).max(32),
-    rubric: NonScoreRubricZodSchema.optional(),
+    options: z.array(NonBlankZodString).min(2).max(32),
+    rubric: NonScoreEmptyRubricZodSchema.optional(),
   }),
   z.strictObject({
     ...QuestionFields,
     type: z.literal("boolean"),
     options: z.union([
-      z.tuple([]),
+      z.array(z.string()).length(0),
       z.tuple([z.literal("true"), z.literal("false")]),
     ]),
-    rubric: NonScoreRubricZodSchema.optional(),
+    rubric: NonScoreEmptyRubricZodSchema.optional(),
   }),
   z.strictObject({
     ...QuestionFields,
     type: z.literal("score"),
-    options: z.array(z.string().min(1)).min(2).max(32),
+    options: z.array(NonBlankZodString).min(2).max(32),
     rubric: z.array(z.string()).min(2).max(10),
   }),
 ]);
 
 export const DecisionRequestZodSchema = z.strictObject({
   state: z.union([
-    z.string().min(1),
+    NonBlankZodString,
     z.record(z.string(), z.unknown()).refine((value) => !Array.isArray(value), { message: "state must not be an array" }),
   ]),
   questions: z.array(QuestionZodSchema).min(1).max(8),
@@ -89,7 +91,7 @@ export function isForbiddenBundlePath(value: string): boolean {
   if (isAbsolute(value)) return true;
   if (/^[A-Za-z]:[\\/]/.test(value)) return true;
   if (value.includes("\\")) return true;
-  if (value.includes("..")) return true;
+  if (value.split("/").some((segment) => segment === "." || segment === "..")) return true;
   if (/%(?:2e|2f|5c)/i.test(value)) return true;
   if (/[?#]/.test(value)) return true;
   return false;
@@ -135,6 +137,7 @@ export function loadBundleManifestStrict(bundleDir: string, expectedSha256?: str
       `bundle manifest escapes bundle root via symlink: ${BUNDLE_MANIFEST_NAME}`,
     );
   }
+  // Re-resolve and read through this checked target so a replaced symlink cannot redirect the later read outside the bundle.
   const manifestRealPath = realpathSync(manifestPath);
   if (manifestRealPath === rootRealPath || !manifestRealPath.startsWith(rootRealPath + sep)) {
     throw new Error("bundle manifest escapes bundle root via symlink");
@@ -201,8 +204,11 @@ export function loadBundleManifestStrict(bundleDir: string, expectedSha256?: str
     if (!recordFullRealPath) {
       throw new Error(`bundle declared file not found: ${record.path}`);
     }
-    if (recordFullRealPath !== rootRealPath && !recordFullRealPath.startsWith(rootRealPath + sep)) {
+    if (recordFullRealPath === rootRealPath || !recordFullRealPath.startsWith(rootRealPath + sep)) {
       throw new Error(`bundle declared file escapes bundle root via symlink: ${record.path}`);
+    }
+    if (!statSync(recordFullRealPath).isFile()) {
+      throw new TypeError(`bundle declared path is not a regular file: ${record.path}`);
     }
   }
   return { rootRealPath, manifest, manifestSha256, manifestPath };
@@ -232,6 +238,9 @@ export function createMcpServer(options: McpServerOptions): McpServer {
     throw new TypeError("options.backend must implement DecisionBackend.decide");
   }
   const backend: DecisionBackend = options.backend;
+  if (backend.backend !== "direct" && backend.backend !== "diffusion") {
+    throw new TypeError("options.backend.backend must be 'direct' or 'diffusion'");
+  }
   const manifest: BundleManifest | null = options.manifest ?? null;
   const bundleRoot: string | null = options.bundleRoot ?? null;
   const logger = options.logger ?? null;
@@ -323,16 +332,29 @@ export function createMcpServer(options: McpServerOptions): McpServer {
       try {
         validateRequest(zodValidated);
       } catch (cause) {
-        const message = `vons_decide request rejected by shared contract validator: ${(cause as Error).message}`;
+        const message = "vons_decide request rejected by shared contract validation; no inference was run.";
         log("warn", "request rejected by shared contract validation");
         return {
           content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }],
           isError: true,
         };
       }
+      if (zodValidated.backend !== undefined && zodValidated.backend !== backend.backend) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "vons_decide requested backend does not match the configured backend; no inference was run.",
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
       let response: DecisionResponse;
       try {
-        response = await backend.decide(zodValidated);
+        response = await backend.decide(structuredClone(zodValidated));
       } catch (cause) {
         void cause;
         const message =
@@ -367,6 +389,20 @@ export function createMcpServer(options: McpServerOptions): McpServer {
           isError: true,
         };
       }
+      const expectedBackend = zodValidated.backend ?? backend.backend;
+      if (response.backend !== expectedBackend) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify({
+                error: "vons_decide backend response backend does not match the configured backend; refusing to forward it.",
+              }),
+            },
+          ],
+          isError: true,
+        };
+      }
       const requestedQuestionIds = new Set(zodValidated.questions.map((question) => question.id));
       const answeredQuestionIds = new Set(response.answers.map((answer) => answer.question_id));
       if (
@@ -382,28 +418,48 @@ export function createMcpServer(options: McpServerOptions): McpServer {
           isError: true,
         };
       }
-      const allAbstain =
-        response.answers.length > 0 &&
-        response.answers.every((a) => a.status === "abstain" && a.choice === null);
-      if (allAbstain) {
-        log("debug", "backend abstained; no fallback decision was applied");
-      }
-      const anyWithChoice = response.answers.some(
-        (a) => a.status === "ok" && typeof a.choice === "string",
-      );
-      if (!anyWithChoice && !allAbstain) {
+      const requestQuestionsById = new Map(zodValidated.questions.map((question) => [question.id, question]));
+      const includesUnrequestedOption = response.answers.some((answer) => {
+        const question = requestQuestionsById.get(answer.question_id);
+        if (!question) return true;
+        const allowedOptions = new Set(
+          question.type === "boolean" && question.options.length === 0
+            ? ["true", "false"]
+            : question.options,
+        );
+        return (
+          (answer.choice !== null && !allowedOptions.has(answer.choice)) ||
+          answer.probabilities.some((item) => !allowedOptions.has(item.option))
+        );
+      });
+      if (includesUnrequestedOption) {
         return {
           content: [
             {
               type: "text" as const,
               text: JSON.stringify({
-                error:
-                  "vons_decide backend produced a response that is neither all-abstain nor all-ok choices; refusing to forward an ambiguous result.",
+                error: "vons_decide backend response includes an option outside the request candidate set; refusing to forward it.",
               }),
             },
           ],
           isError: true,
         };
+      }
+      try {
+        validateResponseForRequest(response, zodValidated);
+      } catch (cause) {
+        const message = `vons_decide backend response failed request reconciliation: ${(cause as Error).message}`;
+        log("error", "backend response failed request reconciliation");
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: message }) }],
+          isError: true,
+        };
+      }
+      const allAbstain =
+        response.answers.length > 0 &&
+        response.answers.every((a) => a.status === "abstain" && a.choice === null);
+      if (allAbstain) {
+        log("debug", "backend abstained; no fallback decision was applied");
       }
       return {
         content: [
@@ -432,6 +488,18 @@ export async function runStdioMcpServer(options: RunStdioServerOptions): Promise
   const stdout = (options.stdout ?? process.stdout) as Writable;
   const transport: Transport = new StdioServerTransport(stdin, stdout);
   const signal = options.signal;
+  let resolveTransportClosed: (() => void) | null = null;
+  const transportClosed = new Promise<void>((resolve) => {
+    resolveTransportClosed = resolve;
+  });
+  const previousOnClose = transport.onclose;
+  transport.onclose = () => {
+    try {
+      previousOnClose?.();
+    } finally {
+      resolveTransportClosed?.();
+    }
+  };
   let onAbort: (() => void) | null = null;
   if (signal) {
     if (signal.aborted) return;
@@ -442,10 +510,12 @@ export async function runStdioMcpServer(options: RunStdioServerOptions): Promise
   }
   try {
     await server.connect(transport);
+    await transportClosed;
   } finally {
     if (onAbort !== null && signal) {
       signal.removeEventListener("abort", onAbort);
     }
+    await server.close().catch(() => void 0);
   }
 }
 

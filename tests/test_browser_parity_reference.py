@@ -32,13 +32,16 @@ class TinyTokenizer:
 class Reference:
     def __init__(self):
         self.feeds = []
+        self.scores = []
         self.answerability = 2.0
         self.invalid = False
 
     def run(self, feed, backend):
         self.feeds.append(copy.deepcopy(feed))
         scores = np.zeros(feed["option_mask"].shape, np.float32)
+        scores[~feed["option_mask"]] = -np.inf
         scores[0, 0] = float("nan") if self.invalid else 3.0
+        self.scores.append(scores.copy())
         return scores, np.array([self.answerability], np.float32)
 
 
@@ -61,34 +64,31 @@ def expected_answer(q, logit=2.0):
             "abstain_reason": reason}
 
 
-def fixture(backend="direct", multi=False):
+def fixture(backend="direct", multi=False, fixed_sequence_width=None):
     questions = [question()]
     if multi:
         questions.append({"id": "q2", "type": "boolean", "prompt": "Continue?", "options": []})
     request = {"state": "ready", "questions": questions, "seed": 7}
-    metadata = {"backend": backend, "sequence_length": 128, "option_count": 4}
+    metadata = {"backend": backend,
+                "sequence_length": max(128, fixed_sequence_width or 0), "option_count": 4}
+    if fixed_sequence_width is not None:
+        metadata["graph"] = {"inputs": [{"name": "input_ids",
+                                          "shape": ["batch", 32, fixed_sequence_width]}]}
     manifest = {"metadata": metadata}
     noise = [0.25, -0.5, 1.0, 2.0] if backend == "diffusion" else None
     traces, timings, answers = [], [], []
     for q in questions:
-        options = q["options"] or ["true", "false"]
-        slots = 4 if backend == "diffusion" else 2
-        ids, masks, types, live = [], [], [], 0
-        for index in range(slots):
-            raw = [101, *f"ready\nQuestion: {q['prompt']}\nCandidate: {options[index]}".encode(), 102] \
-                if index < 2 else []
-            live += len(raw)
-            ids.extend(raw + [0] * (128 - len(raw)))
-            masks.extend([1] * len(raw) + [0] * (128 - len(raw)))
-            types.extend([0] * 128)
+        feed, shape = verifier.build_inputs(TinyTokenizer(), request["state"], q, metadata, backend)
         answer = expected_answer(q)
-        traces.append({"questionId": q["id"], "inputIds": ids, "attentionMask": masks,
-                       "tokenTypeIds": types, "optionMask": [1, 1] + [0] * (slots - 2),
+        traces.append({"questionId": q["id"],
+                       "inputIds": feed["input_ids"].astype(np.int64).ravel().tolist(),
+                       "attentionMask": feed["attention_mask"].astype(np.int64).ravel().tolist(),
+                       "tokenTypeIds": feed["token_type_ids"].astype(np.int64).ravel().tolist(),
+                       "optionMask": feed["option_mask"].astype(np.int64).ravel().tolist(),
                        "initialNoise": noise, "rawScores": [3.0, 0.0], "answerabilityLogit": 2.0,
                        "probabilities": [p["probability"] for p in answer["probabilities"]],
                        "answer": copy.deepcopy(answer)})
-        timings.append({"questionId": q["id"], "live_candidates": 2, "allocated_candidates": slots,
-                        "live_tokens": live, "sequence_length": 128})
+        timings.append({"questionId": q["id"], **shape})
         answers.append(answer)
     row = {"fixture_id": "fixture", "input_hash": verifier.request_hash(request),
            "request": request, "status": "ok", "traces": traces, "timings": timings,
@@ -133,6 +133,38 @@ def test_every_multiquestion_trace_and_response_compares(backend):
         expected = hashlib.sha256(np.array(report["noise_values"], dtype="<f4").tobytes()).hexdigest()
         assert all(q["noise_float32_le_sha256"] == expected for q in result["records"][0]["questions"])
         np.testing.assert_array_equal(reference.feeds[0]["initial_noise"], [[0.25, -0.5, 1, 2]])
+
+
+@pytest.mark.parametrize("backend", ["direct", "diffusion"])
+def test_manifest_sequence_length_is_budget_not_dynamic_feed_width(backend):
+    report, manifest = fixture(backend)
+    row = report["records"][0]
+    timing = row["timings"][0]
+    trace = row["traces"][0]
+
+    assert timing["sequence_length"] < manifest["metadata"]["sequence_length"]
+    assert len(trace["inputIds"]) == timing["allocated_candidates"] * timing["sequence_length"]
+    result = run(report, manifest)
+    assert result["counts"]["passed"] == 1
+    assert result["numerical_questions"] == {"passed": 1, "failed": 0}
+
+
+def test_static_diffusion_graph_width_is_used_for_feed_and_reference():
+    report, manifest = fixture("diffusion", fixed_sequence_width=512)
+    timing = report["records"][0]["timings"][0]
+    trace = report["records"][0]["traces"][0]
+    assert timing["sequence_length"] == 512
+    assert len(trace["inputIds"]) == timing["allocated_candidates"] * 512
+    result = run(report, manifest)
+    assert result["counts"]["passed"] == 1
+    assert result["numerical_questions"] == {"passed": 1, "failed": 0}
+
+
+def test_fixed_graph_width_shorter_than_candidates_fails_closed():
+    metadata = {"backend": "diffusion", "sequence_length": 128, "option_count": 4,
+                "graph": {"inputs": [{"name": "input_ids", "shape": ["batch", 4, 4]}]}}
+    with pytest.raises(verifier.InputOverflow, match="model input width is 4"):
+        verifier.build_inputs(TinyTokenizer(), "ready", question(), metadata, "diffusion")
 
 
 @pytest.mark.parametrize("field", ["inputIds", "attentionMask", "tokenTypeIds", "optionMask"])
@@ -186,6 +218,16 @@ def test_nonfinite_cpu_values_never_pass_even_with_large_tolerance():
     result = verifier.verify_records(report, manifest, TinyTokenizer(), reference, atol=100, rtol=100)
     assert result["counts"]["failed"] == 1
     assert "non-finite" in result["records"][0]["questions"][0]["reason"]
+
+
+def test_nonfinite_masked_diffusion_scores_do_not_fail_live_candidate_comparison():
+    report, manifest = fixture("diffusion")
+    reference = Reference()
+    result = run(report, manifest, reference)
+    assert result["counts"] == {"passed": 1, "failed": 0, "unverified": 0,
+                               "contract_error_verified": 0}
+    assert result["numerical_questions"] == {"passed": 1, "failed": 0}
+    assert np.isneginf(reference.scores[0][0, 2:]).all()
 
 
 def test_noise_uses_array_identity_not_seed_identity():
@@ -247,6 +289,16 @@ def test_aggregate_budget_can_overflow_when_individual_candidates_fit():
     q["options"] = ["x" * 60, "y" * 60]
     with pytest.raises(verifier.InputOverflow, match="aggregate"):
         verifier.build_inputs(TinyTokenizer(), "ready", q,
+                              {"sequence_length": 128, "option_count": 32}, "direct")
+
+
+def test_empty_tokenizer_output_fails_before_creating_a_zero_width_feed():
+    tokenizer = SimpleNamespace(
+        encode=lambda text: SimpleNamespace(ids=[], attention_mask=[], type_ids=[]),
+        token_to_id=lambda token: 0,
+    )
+    with pytest.raises(verifier.ParityError, match="at least one token"):
+        verifier.build_inputs(tokenizer, "ready", question(),
                               {"sequence_length": 128, "option_count": 32}, "direct")
 
 

@@ -1,10 +1,12 @@
 # Upload the Vons source preview to Hugging Face
 
 This guide covers the completed initial upload and subsequent reviewed updates.
-The current v1.1 snapshot contains 128 reviewed files, including the source,
+The reviewed v1.1 artifact snapshot contained 128 files, including source,
 extension source, Vons logo, current Paper and Tech Report PDFs and their
-historical reviewed versions. Drafts, source manuscript bundles, model weights,
-restricted data and private records are excluded.
+historical reviewed versions. On 2026-09-29, a read-only public-state check
+found 136 paths on both GitHub `main` and Hugging Face `main`. Drafts, source
+manuscript bundles, model weights, restricted data and private records are
+excluded.
 
 ## Destination and scope
 
@@ -70,8 +72,11 @@ python3 tools/prepare_public_release.py
 The initial uploaded snapshot is `releases/huggingface-source-v8`. The reviewed
 v1.1 artifact snapshot is `releases/huggingface-source-v13`; it contains 128 reviewed
 files plus a local `RELEASE_MANIFEST.json` receipt with every file's byte count
-and SHA-256 digest. Its root README is the Hub model card; the working-tree
-README remains the GitHub landing page. Live read-back confirmed a public,
+and SHA-256 digest. The Hub export prefixes the root GitHub README body with
+the YAML metadata from `docs/HUGGING_FACE.md`, keeping client setup and
+integration links aligned across destinations while declaring Hub license and
+tags. The `docs/HUGGING_FACE.md` body is also included as a supplementary source
+document. Live read-back confirmed a public,
 ungated repository at commit `a76a881628c03026a2d0fa0993da5904f13480e6`,
 with exact hashes for the two v1.1 PDFs and Vons logo.
 

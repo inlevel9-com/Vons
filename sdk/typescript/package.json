@@ -16,17 +16,18 @@
     "./mcp-cli": "./src/mcp-cli.ts"
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test test/index.test.mjs test/onnx.test.mjs test/parity.test.mjs test/extension.test.mjs test/mcp.test.mjs",
+    "test": "node --experimental-strip-types --test test/index.test.mjs test/onnx.test.mjs test/parity.test.mjs test/extension.test.mjs test/extension-build.test.mjs test/mcp.test.mjs test/benchmark-capture.test.mjs",
     "build:browser": "esbuild demo/main.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=demo/main.js",
     "build:benchmark": "esbuild demo/benchmark.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=demo/benchmark.js",
     "build:parity": "esbuild demo/parity.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=demo/parity.js",
     "build:extension": "node extension/build.mjs",
     "build:mcp": "esbuild src/mcp.ts src/mcp-cli.ts --bundle=false --platform=node --target=es2022 --outdir=dist-mcp-test/ --ignore-annotations",
     "typecheck:extension": "tsc -p extension/tsconfig.json",
+    "typecheck:benchmark": "tsc --noEmit --allowImportingTsExtensions --noEmitOnError --target ES2022 --moduleResolution bundler --module ESNext --strict --skipLibCheck --esModuleInterop --lib ES2022,DOM demo/benchmark.ts demo/benchmark-capture.ts",
     "typecheck:mcp": "tsc --noEmit --allowImportingTsExtensions --noEmitOnError --target ES2022 --moduleResolution bundler --module ESNext --strict --skipLibCheck --esModuleInterop --lib ES2022,DOM src/mcp.ts src/mcp-cli.ts src/index.ts src/onnx.ts"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.6.0"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

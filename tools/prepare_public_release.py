@@ -99,12 +99,22 @@ def audit(root: Path) -> tuple[dict, dict[str, bytes]]:
     return spec, content
 
 
+def huggingface_frontmatter(card: bytes) -> bytes:
+    if not card.startswith(b"---\n"):
+        raise ValueError("Hugging Face card metadata must start with YAML front matter")
+    closing = card.find(b"\n---\n", 4)
+    if closing < 0:
+        raise ValueError("Hugging Face card metadata is missing its closing delimiter")
+    return card[: closing + len(b"\n---\n")]
+
+
 def prepare(root: Path, output: Path | None = None, target: str = "github") -> dict:
     spec, content = audit(root)
     if target not in {"github", "huggingface"}:
         raise ValueError("unknown release target")
     if target == "huggingface":
-        content["README.md"] = content["docs/HUGGING_FACE.md"].replace(b"](../", b"](")
+        metadata = huggingface_frontmatter(content["docs/HUGGING_FACE.md"])
+        content["README.md"] = metadata + b"\n" + content["README.md"]
     manifest = {
         "schema": "vons.public-source/v1", "target": target,
         "status": "prepared_local_only", "license_status": spec["license_status"],

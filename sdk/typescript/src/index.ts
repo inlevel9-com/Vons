@@ -90,15 +90,81 @@ function normalizeRisk(value: string | null | undefined): ToolRisk | null {
     : null;
 }
 
-function stableJson(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    const primitive = JSON.stringify(value);
-    if (primitive === undefined) throw new TypeError("arguments must be JSON-compatible");
-    return primitive;
+function compareUtf16Strings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function assertWellFormedUnicode(value: string): void {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint === undefined || (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+      throw new TypeError("arguments must be JSON-compatible");
+    }
   }
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
-  return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
+}
+
+function stableJson(value: unknown, ancestors = new Set<object>()): string {
+  if (value === null || typeof value !== "object") {
+    if (typeof value === "string") assertWellFormedUnicode(value);
+    if (
+      typeof value === "number" &&
+      (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))
+    ) {
+      throw new TypeError("arguments must be JSON-compatible");
+    }
+    try {
+      const primitive = JSON.stringify(value);
+      if (primitive === undefined) throw new TypeError("arguments must be JSON-compatible");
+      return primitive;
+    } catch {
+      throw new TypeError("arguments must be JSON-compatible");
+    }
+  }
+  if (ancestors.has(value)) throw new TypeError("arguments must be JSON-compatible");
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      const propertyNames = Object.getOwnPropertyNames(value);
+      if (
+        Object.getPrototypeOf(value) !== Array.prototype ||
+        propertyNames.length !== value.length + 1 ||
+        Object.getOwnPropertySymbols(value).length > 0
+      ) {
+        throw new TypeError("arguments must be JSON-compatible");
+      }
+      const items: string[] = [];
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) {
+          throw new TypeError("arguments must be JSON-compatible");
+        }
+        items.push(stableJson(descriptor.value, ancestors));
+      }
+      return `[${items.join(",")}]`;
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+    const propertyNames = Object.getOwnPropertyNames(value);
+    const keys = Object.keys(value);
+    if (
+      (prototype !== Object.prototype && prototype !== null) ||
+      propertyNames.length !== keys.length ||
+      Object.getOwnPropertySymbols(value).length > 0
+    ) {
+      throw new TypeError("arguments must be JSON-compatible");
+    }
+    const entries = keys.map((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !("value" in descriptor)) {
+        throw new TypeError("arguments must be JSON-compatible");
+      }
+      assertWellFormedUnicode(key);
+      return [key, descriptor.value] as const;
+    }).sort(([left], [right]) => compareUtf16Strings(left, right));
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item, ancestors)}`).join(",")}}`;
+  } finally {
+    ancestors.delete(value);
+  }
 }
 
 export function callFingerprint(call: ToolCall): string {
@@ -197,6 +263,31 @@ export function validateResponse(response: DecisionResponse): void {
     }
     if (answer.status === "ok" && answer.probabilities.length > 0 && !options.has(answer.choice!)) {
       throw new TypeError("choice must be present in probabilities");
+    }
+  }
+}
+
+export function validateResponseForRequest(response: DecisionResponse, request: DecisionRequest): void {
+  validateRequest(request);
+  validateResponse(response);
+  if (response.answers.length !== request.questions.length) {
+    throw new TypeError("answers must contain exactly one item per request question");
+  }
+  for (const [index, question] of request.questions.entries()) {
+    const answer = response.answers[index];
+    if (answer.question_id !== question.id) {
+      throw new TypeError("answer question IDs and order must match the request");
+    }
+    const allowedOptions = new Set(
+      question.type === "boolean" && question.options.length === 0
+        ? ["true", "false"]
+        : question.options,
+    );
+    if (answer.choice !== null && !allowedOptions.has(answer.choice)) {
+      throw new TypeError("answer choice must be one of the request options");
+    }
+    if (answer.probabilities.some((item) => !allowedOptions.has(item.option))) {
+      throw new TypeError("probability options must be a subset of the request options");
     }
   }
 }

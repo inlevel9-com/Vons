@@ -52,8 +52,21 @@ class OllamaRecord:
 
 
 class OllamaClient:
+    """Ollama metadata and JSON client restricted to the local daemon."""
+
     def __init__(self, host: str = "http://127.0.0.1:11434", timeout: float = 120.0) -> None:
+        try:
+            _validate_loopback_host(host)
+        except OllamaToolCallError:
+            raise ValueError("OllamaClient host must be a loopback URL") from None
+        parsed_host = urllib.parse.urlsplit(host)
+        if parsed_host.path not in {"", "/"}:
+            raise ValueError("OllamaClient host must not include a path")
         self.host, self.timeout = host.rstrip("/"), timeout
+        self._opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            _LoopbackRedirectHandler,
+        )
 
     def _request(self, path: str, payload: Mapping[str, Any] | None = None) -> Any:
         data = None if payload is None else json.dumps(payload).encode("utf-8")
@@ -63,11 +76,14 @@ class OllamaClient:
             headers={"Content-Type": "application/json"},
             method="POST" if payload is not None else "GET",
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        with self._opener.open(request, timeout=self.timeout) as response:
             return json.loads(response.read().decode("utf-8"))
 
     def version(self) -> str:
-        return str(self._request("/api/version")["version"])
+        value = self._request("/api/version")
+        if not isinstance(value, Mapping) or not isinstance(value.get("version"), str):
+            raise TypeError("malformed Ollama version response")
+        return value["version"]
 
     def tags(self) -> list[Mapping[str, Any]]:
         value = self._request("/api/tags")
@@ -76,6 +92,8 @@ class OllamaClient:
 
     def show(self, model: str) -> OllamaModelInfo:
         value = self._request("/api/show", {"model": model})
+        if not isinstance(value, Mapping):
+            raise TypeError("malformed Ollama model response")
         digest = value.get("digest")
         if not digest:
             digest = next(
@@ -115,11 +133,23 @@ class OllamaClient:
                     "think": False,
                 },
             )
-            response = body.get("message", {}).get("content", "")
+            if not isinstance(body, Mapping):
+                raise TypeError("malformed Ollama chat response")
+            message = body.get("message")
+            if not isinstance(message, Mapping) or not isinstance(message.get("content", ""), str):
+                raise TypeError("malformed Ollama chat message")
+            response = message.get("content", "")
             info = self.show(model)
             error = None
-        except (OSError, ValueError, KeyError, RuntimeError, TypeError) as exc:
+        except (OSError, ValueError, KeyError, RuntimeError, TypeError, AttributeError) as exc:
             response, info, error = None, None, f"{type(exc).__name__}: {exc}"
+        ollama_version = None
+        ollama_version_error = None
+        if error is None:
+            try:
+                ollama_version = self.version()
+            except (OSError, ValueError, KeyError, RuntimeError, TypeError, AttributeError) as exc:
+                ollama_version_error = type(exc).__name__
         return OllamaRecord(
             model,
             "chat_json",
@@ -130,7 +160,8 @@ class OllamaClient:
             {
                 "host": self.host,
                 "platform": platform.platform(),
-                "ollama_version": self.version() if error is None else None,
+                "ollama_version": ollama_version,
+                "ollama_version_error": ollama_version_error,
                 "digest": info.digest if info else None,
                 "details": dict(info.details) if info else {},
                 "capabilities": list(info.capabilities) if info else [],
@@ -386,8 +417,6 @@ _VONS_DECIDE_TOOL_SCHEMA: Mapping[str, Any] = {
                         "additionalProperties": False,
                     },
                 },
-                "backend": {"type": "string", "enum": ["direct", "diffusion"]},
-                "seed": {"type": "integer", "minimum": 0},
             },
             "required": ["state", "questions"],
             "additionalProperties": False,
@@ -400,9 +429,9 @@ _VONS_DECIDE_TOOL_SCHEMA: Mapping[str, Any] = {
 class OllamaToolCallResult:
     """Host-owned result of a single Ollama chat-with-tools turn.
 
-    The raw Ollama message payload is preserved byte-for-byte so auditors can
-    correlate what the model actually returned. The validated ``backend_result`` is
-    populated only when (1) the model requested exactly one ``vons_decide``
+    The decoded Ollama JSON response mapping is preserved before decision
+    validation; it is not a byte-for-byte copy of the wire response. The
+    validated ``backend_result`` is populated only when (1) the model requested exactly one ``vons_decide``
     call, (2) its arguments validated against ``DecisionRequest``, (3) the
     local backend ran, and (4) the backend output reconciled with the request.
     Every other case yields a sanitized error and leaves the backend empty.
@@ -446,7 +475,13 @@ class OllamaToolCallHost:
             raise OllamaToolCallError()
         self.host = host.rstrip("/")
         self.backend = backend
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+            raise OllamaToolCallError()
+        try:
+            finite_timeout = math.isfinite(timeout)
+        except OverflowError:
+            finite_timeout = False
+        if not finite_timeout or timeout <= 0:
             raise OllamaToolCallError()
         self.timeout = timeout
         self._opener = urllib.request.build_opener(
@@ -470,12 +505,14 @@ class OllamaToolCallHost:
         )
         try:
             with self._opener.open(request, timeout=self.timeout) as response:
+                if not isinstance(response, HTTPResponse) or response.status != 200:
+                    raise OllamaToolCallError()
                 raw = response.read(_MAX_RESPONSE_BYTES + 1)
+        except OllamaToolCallError:
+            raise
         except (urllib.error.URLError, OSError, TimeoutError) as exc:
             raise OllamaToolCallError() from exc
         if len(raw) > _MAX_RESPONSE_BYTES:
-            raise OllamaToolCallError()
-        if not isinstance(response, HTTPResponse) or response.status != 200:
             raise OllamaToolCallError()
         try:
             return json.loads(
@@ -548,7 +585,7 @@ class OllamaToolCallHost:
 
     @staticmethod
     def _validate_tool_arguments(arguments: Mapping[str, Any]) -> None:
-        allowed_root = {"state", "questions", "backend", "seed"}
+        allowed_root = {"state", "questions"}
         if set(arguments) - allowed_root or not {"state", "questions"} <= set(arguments):
             raise OllamaToolCallError()
         questions = arguments.get("questions")
@@ -564,10 +601,6 @@ class OllamaToolCallHost:
                 "prompt",
                 "options",
             } <= set(question):
-                raise OllamaToolCallError()
-        if "seed" in arguments:
-            seed = arguments["seed"]
-            if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= _MAX_SEED:
                 raise OllamaToolCallError()
 
     def _reconcile(self, request: DecisionRequest, response: DecisionResponse) -> None:
@@ -670,7 +703,12 @@ class OllamaToolCallHost:
         return validated
 
     def chat_with_tools(
-        self, model: str, messages: Sequence[Mapping[str, Any]], *, seed: int = 7
+        self,
+        model: str,
+        messages: Sequence[Mapping[str, Any]],
+        *,
+        seed: int = 7,
+        think: bool | None = None,
     ) -> OllamaToolCallResult:
         """Run one /api/chat turn advertising only the ``vons_decide`` tool.
 
@@ -678,7 +716,9 @@ class OllamaToolCallHost:
         tool definition (``vons_decide``). If the model replies with exactly
         one matching tool call, its arguments are validated, the backend
         runs, the response reconciles, and both halves are returned. In
-        every other case a sanitized error is returned; no backend runs.
+        every other case a sanitized error is returned; no backend runs. The
+        optional ``think`` override is sent only when explicitly supplied, so
+        ``None`` preserves Ollama's per-model default.
         """
         if (
             not isinstance(model, str)
@@ -697,10 +737,14 @@ class OllamaToolCallHost:
             )
         try:
             validated_messages = self._validate_messages(messages)
-            if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed <= _MAX_SEED:
+            if (
+                isinstance(seed, bool)
+                or not isinstance(seed, int)
+                or not 0 <= seed <= _MAX_SEED
+                or (think is not None and not isinstance(think, bool))
+            ):
                 raise OllamaToolCallError()
         except OllamaToolCallError as err:
-            err = OllamaToolCallError()
             return OllamaToolCallResult(
                 model=model,
                 error_id=err.error_id,
@@ -709,13 +753,15 @@ class OllamaToolCallHost:
                 tool_invoked=False,
                 error=err,
             )
-        payload: Mapping[str, Any] = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": validated_messages,
             "tools": [dict(_VONS_DECIDE_TOOL_SCHEMA)],
             "stream": False,
             "options": {"temperature": 0, "seed": seed},
         }
+        if think is not None:
+            payload["think"] = think
         raw: Mapping[str, Any] | None = None
         try:
             raw = self._post("/api/chat", payload)
@@ -762,9 +808,14 @@ class OllamaToolCallHost:
         try:
             arguments = self._parse_tool_call(message)
             self._validate_tool_arguments(arguments)
-            normalized_arguments = dict(arguments)
-            normalized_arguments.setdefault("backend", self.backend.backend_type.value)
-            request = DecisionRequest.from_mapping(normalized_arguments)
+            request = DecisionRequest.from_mapping(
+                {
+                    "state": arguments["state"],
+                    "questions": arguments["questions"],
+                    "backend": self.backend.backend_type.value,
+                    "seed": seed,
+                }
+            )
             validate_request(request)
         except OllamaToolCallError as err:
             return OllamaToolCallResult(

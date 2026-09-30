@@ -8,9 +8,13 @@
 !/CITATION.cff
 !/LICENSE
 !/NOTICE
+!/OPENAI_AGENTS_SDK.md
 !/pyproject.toml
 !/configs/
 !/docs/
+!/examples/
+/examples/*
+!/examples/openai_agents_vons_stdio.py
 !/sdk/
 !/tests/
 !/tools/

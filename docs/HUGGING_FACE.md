@@ -11,6 +11,11 @@ tags:
   - onnx
 ---
 
+The YAML metadata at the top of this file is prefixed to the allowlisted root
+`README.md` when preparing the Hugging Face export. The Hub card therefore
+keeps the same integration instructions as GitHub; this page remains a
+supplementary source-preview note.
+
 ![Vons](../docs/assets/vons-logo.png)
 
 ![INLEVEL9](../docs/assets/inlevel9-signature.png)

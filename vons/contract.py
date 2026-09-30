@@ -14,6 +14,7 @@ except ImportError:  # pragma: no cover - Python 3.10 compatibility
 import hashlib
 import json
 import re
+from decimal import Decimal
 from collections.abc import Collection, Mapping, Sequence
 from math import isfinite
 from typing import Any
@@ -70,19 +71,84 @@ def _normalize_risk(value: Any) -> str | None:
     return normalized if normalized in _RISK_RANKS else None
 
 
+_MAX_SAFE_INTEGER = (1 << 53) - 1
+
+
+def _canonical_number(value: int | float) -> str:
+    if type(value) is bool:
+        return "true" if value else "false"
+    if type(value) is int:
+        if abs(value) > _MAX_SAFE_INTEGER:
+            raise ValueError("integer-valued KASI arguments must be JavaScript-safe")
+        return str(value)
+    if type(value) is not float:
+        raise TypeError("KASI numbers must use built-in int or float values")
+    if not isfinite(value) or (value.is_integer() and abs(value) > _MAX_SAFE_INTEGER):
+        raise ValueError("numeric KASI arguments must be finite and JavaScript-safe")
+    if value == 0:
+        return "0"
+
+    rendered = repr(value).lower()
+    magnitude = abs(value)
+    if 1e-6 <= magnitude < 1e21:
+        if "e" in rendered:
+            return format(Decimal(rendered), "f")
+        return rendered[:-2] if rendered.endswith(".0") else rendered
+
+    mantissa, exponent = rendered.split("e")
+    if mantissa.endswith(".0"):
+        mantissa = mantissa[:-2]
+    exponent_value = int(exponent)
+    exponent_sign = "+" if exponent_value >= 0 else ""
+    return f"{mantissa}e{exponent_sign}{exponent_value}"
+
+
+def _canonical_json(value: Any, ancestors: set[int] | None = None) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if type(value) in (int, float):
+        return _canonical_number(value)
+    if isinstance(value, str):
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+            raise ValueError("KASI strings must contain valid Unicode")
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+    if type(value) not in (dict, list, tuple):
+        raise TypeError("KASI values must use JSON types")
+    active = set() if ancestors is None else ancestors
+    identity = id(value)
+    if identity in active:
+        raise ValueError("KASI values must not contain cycles")
+    active.add(identity)
+    try:
+        if type(value) in (list, tuple):
+            return "[" + ",".join(_canonical_json(item, active) for item in value) + "]"
+
+        entries: list[tuple[str, Any]] = []
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError("KASI object keys must be strings")
+            if any(0xD800 <= ord(character) <= 0xDFFF for character in key):
+                raise ValueError("KASI object keys must contain valid Unicode")
+            entries.append((key, item))
+        entries.sort(key=lambda entry: entry[0].encode("utf-16-be"))
+        return "{" + ",".join(
+            json.dumps(key, ensure_ascii=False) + ":" + _canonical_json(item, active)
+            for key, item in entries
+        ) + "}"
+    finally:
+        active.remove(identity)
+
+
 def _call_fingerprint(call: Mapping[str, Any]) -> str:
     name = _validate_tool_name(call.get("name"))
     arguments = call.get("arguments", {})
     if not isinstance(arguments, Mapping):
         raise TypeError("KASI call arguments must be an object")
     try:
-        payload = json.dumps(
-            {"name": name, "arguments": arguments},
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
+        payload = _canonical_json({"name": name, "arguments": dict(arguments)}).encode("utf-8")
     except (TypeError, ValueError) as exc:
         raise ValueError("KASI call arguments must be JSON-compatible") from exc
     return hashlib.sha256(payload).hexdigest()

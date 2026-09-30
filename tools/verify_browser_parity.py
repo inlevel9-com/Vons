@@ -205,12 +205,42 @@ def candidate_options(question: dict[str, Any]) -> list[str]:
         else question["options"]
 
 
+def declared_sequence_width(metadata: dict[str, Any], live_width: int,
+                            sequence_budget: int) -> int:
+    graph = metadata.get("graph")
+    if graph is None:
+        return live_width
+    if not isinstance(graph, dict):
+        raise ParityError("manifest graph metadata must be an object")
+    inputs = graph.get("inputs")
+    if inputs is None:
+        return live_width
+    if not isinstance(inputs, list) or any(not isinstance(item, dict) for item in inputs):
+        raise ParityError("manifest graph inputs must be an object list")
+    record = next((item for item in inputs if item.get("name") == "input_ids"), None)
+    if record is None or record.get("shape") is None:
+        return live_width
+    shape = record["shape"]
+    if not isinstance(shape, list) or len(shape) != 3:
+        raise ParityError("manifest input_ids graph shape must have rank 3")
+    declared_width = shape[2]
+    if declared_width is None or isinstance(declared_width, str):
+        return live_width
+    if type(declared_width) is not int or not 1 <= declared_width <= sequence_budget:
+        raise ParityError("manifest input_ids graph width must be within the sequence budget")
+    if declared_width < live_width:
+        raise InputOverflow(
+            f"tokenized candidate has {live_width} tokens; model input width is {declared_width}"
+        )
+    return declared_width
+
+
 def build_inputs(tokenizer: Any, state: Any, question: dict[str, Any],
                  metadata: dict[str, Any], backend: str) -> tuple[dict[str, np.ndarray], dict[str, int]]:
     options = candidate_options(question)
-    sequence = metadata.get("sequence_length", 512)
+    sequence_budget = metadata.get("sequence_length", 512)
     limit = metadata.get("option_count", 32)
-    if type(sequence) is not int or not 1 <= sequence <= 512:
+    if type(sequence_budget) is not int or not 1 <= sequence_budget <= 512:
         raise ParityError("manifest sequence_length must be an integer in 1..512")
     if type(limit) is not int or not len(options) <= limit <= 32:
         raise ParityError("manifest option_count cannot accommodate the question")
@@ -218,15 +248,19 @@ def build_inputs(tokenizer: Any, state: Any, question: dict[str, Any],
     state_text = state if isinstance(state, str) else stable_json(state)
     prefix = f"{state_text}\nQuestion: {question['prompt']}\n"
     aggregate = tokenizer.encode(prefix + "Candidates:\n" + "\n".join(options))
-    if len(aggregate.ids) > sequence:
-        raise InputOverflow(f"aggregate tokens {len(aggregate.ids)} exceed {sequence}")
+    if len(aggregate.ids) > sequence_budget:
+        raise InputOverflow(f"aggregate tokens {len(aggregate.ids)} exceed {sequence_budget}")
     encoded = [tokenizer.encode(prefix + "Candidate: " + option) for option in options]
-    if any(len(item.ids) > sequence for item in encoded):
-        raise InputOverflow(f"candidate tokens exceed {sequence}")
+    if any(len(item.ids) > sequence_budget for item in encoded):
+        raise InputOverflow(f"candidate tokens exceed {sequence_budget}")
+    live_width = max(len(item.ids) for item in encoded)
+    if live_width < 1:
+        raise ParityError("each tokenized candidate must contain at least one token")
+    sequence_length = declared_sequence_width(metadata, live_width, sequence_budget)
     padding = tokenizer.token_to_id("[PAD]")
-    feed = {"input_ids": np.full((1, slots, sequence), padding or 0, dtype=np.int64),
-            "attention_mask": np.zeros((1, slots, sequence), dtype=np.int64),
-            "token_type_ids": np.zeros((1, slots, sequence), dtype=np.int64),
+    feed = {"input_ids": np.full((1, slots, sequence_length), padding or 0, dtype=np.int64),
+            "attention_mask": np.zeros((1, slots, sequence_length), dtype=np.int64),
+            "token_type_ids": np.zeros((1, slots, sequence_length), dtype=np.int64),
             "option_mask": np.zeros((1, slots), dtype=np.bool_)}
     for index, item in enumerate(encoded):
         size = len(item.ids)
@@ -237,7 +271,7 @@ def build_inputs(tokenizer: Any, state: Any, question: dict[str, Any],
         feed["token_type_ids"][0, index, :size] = item.type_ids
         feed["option_mask"][0, index] = True
     shape = {"live_candidates": len(options), "allocated_candidates": slots,
-             "live_tokens": sum(len(item.ids) for item in encoded), "sequence_length": sequence}
+             "live_tokens": sum(len(item.ids) for item in encoded), "sequence_length": sequence_length}
     return feed, shape
 
 
@@ -350,11 +384,16 @@ def verify_trace(trace: dict[str, Any], timing: dict[str, Any], response_answer:
     elif trace.get("initialNoise") is not None or noise_values is not None:
         raise ParityError("Direct must not carry diffusion noise")
     raw_scores, raw_answerability = reference.run(feed, backend)
-    all_scores = finite_array(raw_scores, "CPU raw scores")
+    try:
+        all_scores = np.asarray(raw_scores, dtype=np.float64)
+    except (ValueError, TypeError) as exc:
+        raise ParityError("CPU raw scores is not numeric") from exc
     raw_answerability = finite_array(raw_answerability, "CPU answerability")
     if all_scores.shape != (1, shape["allocated_candidates"]) or raw_answerability.size != 1:
         raise ParityError("CPU output tensor shape differs from bundle contract")
-    scores = all_scores[0, :shape["live_candidates"]]
+    # Diffusion graphs intentionally emit -inf for masked candidate slots;
+    # only the live candidates participate in answer selection.
+    scores = finite_array(all_scores[0, :shape["live_candidates"]], "CPU raw scores")
     logit = float(raw_answerability.ravel()[0])
     score_delta = assert_close(trace.get("rawScores"), scores, "raw scores", atol, rtol)
     logit_delta = assert_close([trace.get("answerabilityLogit")], [logit], "answerability", atol, rtol)

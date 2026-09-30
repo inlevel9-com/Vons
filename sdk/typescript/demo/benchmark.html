@@ -9,6 +9,13 @@
     <main>
       <h1>Vons ONNX Runtime Web benchmark</h1>
       <p>Run with query parameters such as <code>?backend=direct&amp;provider=wasm&amp;sessions=5&amp;warmup=10&amp;repeats=100</code>.</p>
+      <p>If a tab closes during a run, open <a href="?recover=1" target="_blank" rel="noreferrer">saved-run recovery</a> to reconstruct the latest checkpoint. Saved reports stay in this browser until you clear them.</p>
+      <section id="recovery-controls" aria-label="Saved benchmark reports" hidden>
+        <label for="saved-run">Saved run</label>
+        <select id="saved-run"></select>
+        <button id="recover-saved-run" type="button">Recover selected run</button>
+        <button id="clear-saved-runs" type="button">Clear saved runs</button>
+      </section>
       <button id="download-report" type="button" hidden>Download raw report</button>
       <pre id="output">Waiting for benchmark parameters.</pre>
     </main>

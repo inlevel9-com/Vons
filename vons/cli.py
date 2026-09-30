@@ -37,7 +37,12 @@ def _parser() -> argparse.ArgumentParser:
     command.add_argument("--output", required=True)
     command = sub.add_parser("generate-synthetic")
     command.add_argument("--count", type=int, default=2000)
-    command.add_argument("--seed", type=int, default=7)
+    command.add_argument(
+        "--seed",
+        type=int,
+        default=7,
+        help="Seed Ollama generation and the local Vons diffusion sampler.",
+    )
     command.add_argument("--output", required=True)
     command = sub.add_parser("validate-data")
     command.add_argument("--input", required=True)
@@ -105,6 +110,12 @@ def _parser() -> argparse.ArgumentParser:
         "--input", required=True, help='JSON file with {"messages": [...]} payload'
     )
     command.add_argument("--seed", type=int, default=7)
+    command.add_argument(
+        "--think",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Control thinking when supported; default uses the Ollama model setting.",
+    )
     command.add_argument("--output")
     return parser
 
@@ -155,10 +166,12 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"output": args.output, "rows": len(rows), "split": args.split}, indent=2))
         return 0
     if args.command == "ollama-check":
-        client, payload = (
-            OllamaClient(args.host),
-            {"host": args.host, "platform": platform.platform(), "models": []},
-        )
+        try:
+            client = OllamaClient(args.host)
+        except ValueError:
+            print("ollama host must be a loopback URL", file=sys.stderr)
+            return 5
+        payload = {"host": args.host, "platform": platform.platform(), "models": []}
         for model in args.models:
             try:
                 info = client.show(model)
@@ -181,8 +194,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "ollama-benchmark":
         rows = read_jsonl(args.input)
+        try:
+            client = OllamaClient(args.host)
+        except ValueError:
+            print("ollama host must be a loopback URL", file=sys.stderr)
+            return 5
         result = benchmark_ollama(
-            OllamaClient(args.host),
+            client,
             args.model,
             rows,
             role=args.role,
@@ -325,13 +343,13 @@ def main(argv: list[str] | None = None) -> int:
         except OllamaToolCallError as exc:
             print(f"ollama tool-call host init failed error_id={exc.error_id}", file=sys.stderr)
             return 5
-        result = host.chat_with_tools(args.model, messages, seed=args.seed)
+        result = host.chat_with_tools(args.model, messages, seed=args.seed, think=args.think)
         serialized = json.dumps(tool_call_result_to_mapping(result), indent=2, sort_keys=True)
         if args.output:
             Path(args.output).parent.mkdir(parents=True, exist_ok=True)
             Path(args.output).write_text(serialized + "\n", encoding="utf-8")
         print(serialized)
-        return 17 if result.error is not None else 0
+        return 18 if result.error is not None else 0
     raise SystemExit(f"unknown command: {args.command}")
 
 

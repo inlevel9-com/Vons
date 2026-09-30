@@ -9,7 +9,7 @@ self.onmessage = async (event: MessageEvent<{ bundle?: LocalBundle; provider: "w
   try {
     const { bundle, provider, request } = event.data;
     if (bundle) {
-      const key = `${bundle.manifestHash}:${provider}`;
+      const key = `${bundle.manifestHash}:${bundle.head ?? bundle.backend}:${provider}`;
       if (key !== loadedKey) {
         await backend?.dispose(); backend = undefined; loadedKey = "";
         self.postMessage({ type: "progress", text: "Checking model files and starting the local runtime…" });
@@ -26,6 +26,7 @@ self.onmessage = async (event: MessageEvent<{ bundle?: LocalBundle; provider: "w
         };
         backend = await createOnnxWebBackend({ manifestUrl: new URL(bundle.manifestPath, base),
           expectedManifestSha256: bundle.manifestHash, fetch: localFetch, provider,
+          ...(bundle.head ? { head: bundle.head } : {}),
           wasmPaths: new URL("runtime/", self.location.href).href, wasmNumThreads: 1 });
         loadedKey = key;
       }

@@ -1,4 +1,5 @@
 import { createOnnxWebBackend, type OnnxTimingSample } from "../src/onnx.ts";
+import { createBrowserBenchmarkJournal } from "./benchmark-capture.ts";
 
 type BackendName = "direct" | "diffusion";
 type ProviderName = "wasm" | "webgpu";
@@ -35,6 +36,7 @@ interface BenchmarkSample extends Omit<OnnxTimingSample, "live_candidates" | "al
   noise_hash: string | null;
   js_heap_used_bytes_before: number | null;
   js_heap_used_bytes_after: number | null;
+  preceding_checkpoint_write_ms: number | null;
   status: "ok" | "error";
   error_kind?: string;
 }
@@ -46,14 +48,24 @@ interface SessionRecord {
   error_kind?: string;
 }
 
-const output = document.querySelector<HTMLElement>("#output");
-if (!output) throw new Error("benchmark output is missing");
-const downloadButton = document.querySelector<HTMLButtonElement>("#download-report");
-if (!downloadButton) throw new Error("benchmark download button is missing");
+function requiredElement<T extends Element>(selector: string): T {
+  const element = document.querySelector<T>(selector);
+  if (!element) throw new Error(`benchmark element is missing: ${selector}`);
+  return element;
+}
 
-function showReport(report: unknown, fileName: string): void {
+const output = requiredElement<HTMLElement>("#output");
+const downloadButton = requiredElement<HTMLButtonElement>("#download-report");
+const recoveryControls = requiredElement<HTMLElement>("#recovery-controls");
+const savedRunSelect = requiredElement<HTMLSelectElement>("#saved-run");
+const recoverSavedRunButton = requiredElement<HTMLButtonElement>("#recover-saved-run");
+const clearSavedRunsButton = requiredElement<HTMLButtonElement>("#clear-saved-runs");
+const journal = createBrowserBenchmarkJournal();
+const recoveryMode = new URLSearchParams(location.search).get("recover") === "1";
+
+function showReport(report: unknown, fileName: string, notice?: string): void {
   const text = JSON.stringify(report, null, 2);
-  output.textContent = text;
+  output.textContent = notice ? `${notice}\n\n${text}` : text;
   downloadButton.hidden = false;
   downloadButton.onclick = () => {
     const blob = new Blob([text], { type: "application/json" });
@@ -61,10 +73,68 @@ function showReport(report: unknown, fileName: string): void {
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = fileName;
+    anchor.hidden = true;
+    document.body.append(anchor);
     anchor.click();
-    URL.revokeObjectURL(url);
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
   };
   console.log(text);
+}
+
+function configureRecoveryView(): boolean {
+  if (!recoveryMode) return false;
+  recoveryControls.hidden = false;
+  if (!journal) {
+    output.textContent = "Saved-run recovery is unavailable because local browser storage could not be opened.";
+    recoverSavedRunButton.disabled = true;
+    clearSavedRunsButton.disabled = true;
+    return true;
+  }
+
+  const renderSavedRuns = () => {
+    const runs = journal.listRunSummaries();
+    savedRunSelect.replaceChildren(...runs.map((run) => {
+      const option = document.createElement("option");
+      option.value = run.run_id;
+      const expected = run.expected_samples ?? "?";
+      option.textContent = `${run.run_id} — ${run.saved_samples}/${expected} samples · ${run.saved_state}`;
+      return option;
+    }));
+    recoverSavedRunButton.disabled = runs.length === 0;
+    clearSavedRunsButton.disabled = !journal.hasSavedCheckpoints();
+    return runs;
+  };
+  renderSavedRuns();
+
+  const showSelectedReport = (notice?: string): void => {
+    const runId = savedRunSelect.value;
+    const report = runId ? journal.recover(runId) : null;
+    if (!report || !runId) {
+      output.textContent = "No recoverable benchmark reports were found in this browser.";
+      downloadButton.hidden = true;
+      return;
+    }
+    showReport(report, `vons-recovered-${runId}.json`, notice);
+  };
+  recoverSavedRunButton.onclick = () => showSelectedReport();
+  savedRunSelect.onchange = () => showSelectedReport();
+  clearSavedRunsButton.onclick = () => {
+    if (!window.confirm("Delete all saved Vons browser benchmark checkpoints from this browser? If a benchmark is still running, it will continue but cannot save more recovery checkpoints.")) return;
+    const cleared = journal.clearAll();
+    const remaining = renderSavedRuns();
+    if (cleared) {
+      output.textContent = "Saved benchmark checkpoints were cleared from this browser.";
+      downloadButton.hidden = true;
+    } else if (remaining.length > 0) {
+      showSelectedReport("Some checkpoints could not be cleared. Remaining saved runs are still available below.");
+    } else {
+      output.textContent = "The saved-run list is empty; checkpoint removal could not be confirmed.";
+      downloadButton.hidden = true;
+    }
+  };
+  showSelectedReport();
+  return true;
 }
 
 const manifestUrls = {
@@ -160,6 +230,65 @@ async function run(): Promise<void> {
   const samples: BenchmarkSample[] = [];
   const sessionRecords: SessionRecord[] = [];
   let runtimeInfo: Awaited<ReturnType<typeof createOnnxWebBackend>>["runtimeInfo"] | null = null;
+  let captureStatus: "active" | "unavailable" | "write_failed" = journal ? "active" : "unavailable";
+  let runComplete = false;
+  let precedingCheckpointWriteMs: number | null = null;
+  const reportHeader: Record<string, unknown> = {
+    schema: "vons.browser-benchmark/v1",
+    run_id: runId,
+    backend: backendName,
+    requested_provider: provider,
+    sessions,
+    warmup_excluded_per_session: warmup,
+    repeats_per_session: repeats,
+    cases: caseCount,
+    created_at: new Date().toISOString(),
+    environment: browserEnvironment,
+    runtime_info: runtimeInfo,
+    session_start_semantics: "new ORT session on one page; module and browser caches may persist",
+    execution_provider_evidence: "requested provider and session creation only; graph partition status is not exposed by this harness",
+    session_records: [] as SessionRecord[],
+    samples: [] as BenchmarkSample[],
+    capture: {
+      mode: journal ? "same_origin_localStorage_checkpoints" : "unavailable",
+      storage_status: captureStatus,
+      checkpoint_policy: "initial run header; runtime metadata header after each successful session load; one keyed write after each sample and session record",
+      request_timing_note: "the current sample checkpoint runs after decide timing; synchronous storage and serialization can affect later intervals and heap observations",
+      memory_note: "heap observations are not isolated from localStorage checkpoint allocations; preceding_checkpoint_write_ms sums journal write time since the prior sampled request, including setup writes before the first sample",
+    },
+  };
+  const markWriteFailure = (): void => {
+    captureStatus = "write_failed";
+    if (journal) measureCheckpointWrite(() => journal.writeState(runId, "write_failed"));
+  };
+  const measureCheckpointWrite = (write: () => boolean): boolean => {
+    const started = performance.now();
+    const result = write();
+    precedingCheckpointWriteMs = (precedingCheckpointWriteMs ?? 0) + performance.now() - started;
+    return result;
+  };
+  if (journal && !measureCheckpointWrite(() => journal.writeHeader(runId, reportHeader))) markWriteFailure();
+  if (captureStatus === "active" && journal && !measureCheckpointWrite(() => journal.writeState(runId, "running"))) markWriteFailure();
+  window.addEventListener("pagehide", () => {
+    if (journal) {
+      const status = captureStatus === "active"
+        ? runComplete ? "completed" : "pagehide"
+        : "write_failed";
+      if (!journal.writeState(runId, status)) captureStatus = "write_failed";
+    }
+  });
+
+  const checkpointSample = (sample: BenchmarkSample): void => {
+    sample.preceding_checkpoint_write_ms = precedingCheckpointWriteMs;
+    precedingCheckpointWriteMs = null;
+    if (captureStatus !== "active" || !journal) return;
+    const written = measureCheckpointWrite(() => journal.writeSample(runId, sample));
+    if (!written) markWriteFailure();
+  };
+  const checkpointSession = (record: SessionRecord): void => {
+    if (captureStatus === "active" && journal
+      && !measureCheckpointWrite(() => journal.writeSession(runId, { ...record, run_id: runId }))) markWriteFailure();
+  };
 
   for (let sessionStart = 1; sessionStart <= sessions; sessionStart += 1) {
     let timing: OnnxTimingSample | undefined;
@@ -175,8 +304,14 @@ async function run(): Promise<void> {
         onTiming: (sample) => { timing = sample; },
         initialNoise: backendName === "diffusion" ? () => new Float32Array(noise as Float32Array) : undefined,
       });
+      const loadMs = performance.now() - started;
       runtimeInfo = backend.runtimeInfo;
-      sessionRecords.push({ session_start: sessionStart, load_ms: performance.now() - started, status: "ok" });
+      reportHeader.runtime_info = runtimeInfo;
+      if (captureStatus === "active" && journal
+        && !measureCheckpointWrite(() => journal.writeHeader(runId, reportHeader))) markWriteFailure();
+      const sessionRecord = { session_start: sessionStart, load_ms: loadMs, status: "ok" as const };
+      sessionRecords.push(sessionRecord);
+      checkpointSession(sessionRecord);
       for (let repeat = 0; repeat < warmup; repeat += 1) await backend.decide(request(repeat));
       for (let repeat = 0; repeat < repeats; repeat += 1) {
         const caseValue = cases[repeat % cases.length];
@@ -184,9 +319,10 @@ async function run(): Promise<void> {
         timing = undefined;
         try {
           await backend.decide(request(repeat));
-          if (!timing) throw new Error("timing hook did not produce a sample");
-          samples.push({
-            ...timing,
+          const measured = timing as OnnxTimingSample | undefined;
+          if (!measured) throw new Error("timing hook did not produce a sample");
+          const sample: BenchmarkSample = {
+            ...measured,
             run_id: runId,
             session_start: sessionStart,
             repeat,
@@ -195,20 +331,23 @@ async function run(): Promise<void> {
             requested_provider: provider,
             observed_provider: null,
             observed_provider_status: "session_created; execution_partition_not_exposed",
-            live_candidates: timing.live_candidates,
-            allocated_candidates: timing.allocated_candidates,
-            live_tokens: timing.live_tokens,
-            sequence_length: timing.sequence_length,
+            live_candidates: measured.live_candidates,
+            allocated_candidates: measured.allocated_candidates,
+            live_tokens: measured.live_tokens,
+            sequence_length: measured.sequence_length,
             bundle_hash: backend.manifestHash,
             tokenizer_hash: backend.manifest.files.find((item) => item.path.endsWith("tokenizer.json"))?.sha256 ?? null,
             input_hash: hashedInputs.get(caseValue.caseId) as string,
             noise_hash: noiseHash,
             js_heap_used_bytes_before: before,
             js_heap_used_bytes_after: heapBytes(),
+            preceding_checkpoint_write_ms: precedingCheckpointWriteMs,
             status: "ok",
-          });
+          };
+          samples.push(sample);
+          checkpointSample(sample);
         } catch (error) {
-          samples.push({
+          const sample: BenchmarkSample = {
             questionId: caseValue.caseId,
             tokenizeMs: null,
             prepareFeedMs: null,
@@ -233,13 +372,18 @@ async function run(): Promise<void> {
             noise_hash: noiseHash,
             js_heap_used_bytes_before: before,
             js_heap_used_bytes_after: heapBytes(),
+            preceding_checkpoint_write_ms: precedingCheckpointWriteMs,
             status: "error",
             error_kind: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
-          });
+          };
+          samples.push(sample);
+          checkpointSample(sample);
         }
       }
     } catch (error) {
-      sessionRecords.push({ session_start: sessionStart, load_ms: performance.now() - started, status: "error", error_kind: error instanceof Error ? `${error.name}: ${error.message}` : String(error) });
+      const sessionRecord = { session_start: sessionStart, load_ms: performance.now() - started, status: "error" as const, error_kind: error instanceof Error ? `${error.name}: ${error.message}` : String(error) };
+      sessionRecords.push(sessionRecord);
+      checkpointSession(sessionRecord);
     } finally {
       await backend?.dispose();
     }
@@ -250,19 +394,18 @@ async function run(): Promise<void> {
     const available = values.filter((value): value is number => value !== null);
     return available.length === 0 ? null : Math.max(...available);
   };
+  runComplete = true;
+  if (journal) {
+    const written = journal.writeState(runId, captureStatus === "active" ? "completed" : "write_failed");
+    if (!written) captureStatus = "write_failed";
+  }
   const report = {
-    schema: "vons.browser-benchmark/v1",
-    run_id: runId,
-    backend: backendName,
-    requested_provider: provider,
-    sessions,
-    warmup_excluded_per_session: warmup,
-    repeats_per_session: repeats,
-    cases: caseCount,
-    environment: browserEnvironment,
+    ...reportHeader,
     runtime_info: runtimeInfo,
-    session_start_semantics: "new ORT session on one page; module and browser caches may persist",
-    execution_provider_evidence: "requested provider and session creation only; graph partition status is not exposed by this harness",
+    capture: {
+      ...(reportHeader.capture as Record<string, unknown>),
+      storage_status: captureStatus,
+    },
     session_records: sessionRecords,
     samples,
     summary: {
@@ -274,12 +417,14 @@ async function run(): Promise<void> {
       inference_and_readback_ms_p95: percentile(successful.flatMap((sample) => sample.inferenceAndReadbackMs === null ? [] : [sample.inferenceAndReadbackMs]), 0.95),
       js_heap_before_max: memoryMaximum(successful.map((sample) => sample.js_heap_used_bytes_before)),
       js_heap_after_max: memoryMaximum(successful.map((sample) => sample.js_heap_used_bytes_after)),
-      memory_note: "performance.memory before/after observations only; not a peak or GPU-memory measurement",
+      memory_note: "performance.memory before/after observations only; synchronous localStorage checkpoint allocations can affect later before readings; preceding_checkpoint_write_ms records intervening journal-write time; not a peak or GPU-memory measurement",
     },
   };
   showReport(report, `vons-${backendName}-${provider}-${runId}.json`);
 }
 
-void run().catch((error) => {
-  showReport({ schema: "vons.browser-benchmark/v1", status: "error", error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) }, `vons-browser-benchmark-error-${crypto.randomUUID()}.json`);
-});
+if (!configureRecoveryView()) {
+  void run().catch((error) => {
+    showReport({ schema: "vons.browser-benchmark/v1", status: "error", error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) }, `vons-browser-benchmark-error-${crypto.randomUUID()}.json`);
+  });
+}

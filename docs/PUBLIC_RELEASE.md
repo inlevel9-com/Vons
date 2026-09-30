@@ -32,8 +32,10 @@ Each export is a new directory containing only allowlisted files and a
 `RELEASE_MANIFEST.json` with byte counts and SHA-256 hashes. Existing output
 directories are never overwritten. Use a new versioned output path after any
 source change. The Hugging Face export substitutes its model card as the root
-README. Both exports contain source, the current v1.1 Paper and Tech Report and
-their two reviewed historical PDFs, with no pretrained assets.
+README by adding the YAML metadata at the top of `docs/HUGGING_FACE.md` to the
+allowlisted GitHub root README body. Both exports contain source, the current
+v1.1 Paper and Tech Report and their two reviewed historical PDFs, with no
+pretrained assets.
 
 The audit detects known token/key patterns, personal home paths, private writing
 session URLs, unexpected Git files, symlinks and changed reviewed binaries.

@@ -196,6 +196,68 @@ redirect escape paths. A local Ollama smoke is limited to synthetic input and
 does not establish model quality or performance; see
 [WORK_ALLOCATION.md](docs/WORK_ALLOCATION.md) for its evidence boundary.
 
+## ChatGPT Developer Mode (private MCP test)
+
+For a private, owner-operated ChatGPT test, OpenAI's [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+forwards a local Vons stdio MCP server without exposing an inbound public
+endpoint. This is setup guidance only; a ChatGPT Developer Mode connection has
+not been tested from this repository.
+
+You need Node.js 22.6 or later, this source checkout, a user-supplied local Vons
+bundle with its verified manifest, the official `tunnel-client`, a `tunnel_id`
+and runtime API key, and access to ChatGPT Developer Mode. Platform tunnel
+permissions and ChatGPT workspace permissions are separate: creating or editing
+a tunnel requires Tunnels Read + Manage; running the client or selecting a
+tunnel requires Tunnels Read + Use. ChatGPT Developer Mode is a separate
+workspace permission, and some workspaces require an administrator to enable
+it. Create the runtime API key with Tunnels Read + Use; do not use an admin key
+for the long-running tunnel client.
+
+Install the SDK dependencies once:
+
+```sh
+cd /absolute/path/to/Vons/sdk/typescript
+npm ci
+```
+
+On a machine that can run the local MCP process, set `CONTROL_PLANE_API_KEY`
+through your secret manager and set `VONS_TUNNEL_ID` to the ID created in
+[OpenAI Platform Tunnels](https://platform.openai.com/settings/organization/tunnels).
+Install `tunnel-client` using the [OpenAI guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+or its [operator quickstart](https://github.com/openai/tunnel-client/blob/master/docs/end-user-guide.md),
+then create and run a stdio profile from the repository root. Replace the
+bundle path with an absolute path to your own verified bundle:
+
+```sh
+cd /absolute/path/to/Vons
+tunnel-client init \
+  --sample sample_mcp_stdio_local \
+  --profile vons-local \
+  --tunnel-id "$VONS_TUNNEL_ID" \
+  --mcp-command "node --experimental-strip-types $PWD/sdk/typescript/src/mcp-cli.ts --bundle /absolute/path/to/verified-local-bundle"
+tunnel-client doctor --profile vons-local --explain
+tunnel-client run --profile vons-local
+```
+
+Associate the tunnel with the Platform organization and ChatGPT workspace you
+will use. Keep the tunnel client running, then in ChatGPT Plugins select the
+plus button to create a Developer Mode app. Choose **Tunnel** under Connection
+and select the available tunnel or paste the same tunnel ID. If the tunnel is
+not listed, check its workspace association and the app creator's Tunnels Read
++ Use permission. The CLI requires a local bundle; it does not download model
+weights. The stdio server exposes `vons_decide` and performs local ONNX
+inference, but ChatGPT conversation content and tool arguments still pass
+through OpenAI. Local inference does not make a ChatGPT conversation private
+from ChatGPT. Vons returns a decision only; the host remains responsible for
+policy, consent, and any downstream execution.
+
+Secure MCP Tunnel is for private use and Developer Mode testing. It does not
+support public plugin submission or distribution; sharing a public ChatGPT
+integration requires a separately hosted, stable HTTPS MCP endpoint. See
+OpenAI's [MCP connection guide](https://developers.openai.com/api/docs/guides/agents-api/tools/mcp)
+for the distinction between local stdio, session-environment, and OpenAI-hosted
+connections.
+
 ## Research workflow
 
 Install the optional dependencies when running your own experiments:
